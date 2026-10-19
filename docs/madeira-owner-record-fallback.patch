@@ -1,0 +1,22 @@
+diff --git a/app/Madeira/SwiftSteam/Content/DepotDownloader.swift b/app/Madeira/SwiftSteam/Content/DepotDownloader.swift
+index bca8739..3f20432 100644
+--- a/app/Madeira/SwiftSteam/Content/DepotDownloader.swift
++++ b/app/Madeira/SwiftSteam/Content/DepotDownloader.swift
+@@ -240,9 +240,14 @@ final class DepotDownloader {
+                 // app's folder. Skipping owners with another folder left GTA V
+                 // Enhanced's owner 1899670 (installdir RGLSC) without the depot,
+                 // and every launch failed with "required app 1899670 not ready".
+-                guard let owner = app.sharedOwners[ownerID] else {
+-                    skipped += 1; continue
+-                }
++                // Valve's client creates an empty "update required" record for an owner
++                // that has none and then refuses the launch (error 17). When Steam gave
++                // no metadata for the owner (fetchAppInfo returned nil), still record
++                // the depots that were installed, under the same fallbacks the writer
++                // uses for a missing name and folder. The build id is unknown (0).
++                if app.sharedOwners[ownerID] == nil { skipped += 1 }
++                let owner = app.sharedOwners[ownerID]
++                    ?? SteamAppInfo.SharedOwner(name: "", installDir: folderName, buildID: 0)
+                 let ownerFolder = SteamInstallFiles.safeFolderName(owner.installDir)
+                 try AppManifestWriter.mergeOwnerManifest(ownerAppID: ownerID, ownerName: owner.name, ownerBuildID: owner.buildID,
+                                                          installDir: ownerFolder.isEmpty ? folderName : ownerFolder,
