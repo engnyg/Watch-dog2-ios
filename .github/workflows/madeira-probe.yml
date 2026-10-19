@@ -67,11 +67,54 @@ jobs:
 
           stage 04-gnutls-tracked bash -c 'ls -l app/Madeira/lib{gmp,nettle,hogweed,gnutls}.a'
           stage 05-ffmpeg bash build/ffmpeg/build.sh
-          stage 06-fex-ios bash build/fex-ios/build.sh
-          stage 07-fex-arm64ec bash build/fex-arm64ec/build.sh
+
+          # FEX for iOS: the script configures only on first run and leaves
+          # CMAKE_SYSTEM_PROCESSOR empty, which FEX rejects; configure it here.
+          fex_ios() {
+            cmake -S FEX -B FEX/build-ios -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
+              -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_SYSROOT=iphoneos -DCMAKE_OSX_DEPLOYMENT_TARGET=17.0 \
+              -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_THUNKS=OFF -DBUILD_FEXCONFIG=OFF \
+              -DBUILD_FEX_LINUX_TESTS=OFF -DENABLE_FEX_ALLOCATOR=OFF -DENABLE_ASSERTIONS=OFF \
+              -DENABLE_CLANG_THUNKS=ON -DENABLE_CCACHE=ON &&
+            bash build/fex-ios/build.sh
+          }
+          stage 06-fex-ios fex_ios
+
+          # FEX ARM64EC: a Homebrew fmt must not be found for a MinGW target.
+          fex_ec() {
+            brew uninstall --ignore-dependencies fmt || true
+            export PATH="$PWD/toolchains/llvm-mingw-20260421-ucrt-macos-universal/bin:$PATH"
+            cmake -S FEX -B FEX/build-arm64ec -G Ninja -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_TOOLCHAIN_FILE=FEX/Data/CMake/toolchain_mingw.cmake -DMINGW_TRIPLE=arm64ec-w64-mingw32 \
+              -DTUNE_CPU=cortex-a78 -DFEX_IOS_HOST_BUILD=ON -DCMAKE_C_FLAGS=-DFEX_IOS_HOST=1 \
+              -DCMAKE_CXX_FLAGS=-DFEX_IOS_HOST=1 -DCMAKE_ASM_FLAGS=-DFEX_IOS_HOST=1 -DENABLE_LTO=OFF \
+              -DENABLE_FEX_ALLOCATOR=ON -DENABLE_JEMALLOC_GLIBC_ALLOC=ON -DENABLE_OFFLINE_RUNTIME=ON \
+              -DBUILD_FEXCONFIG=ON -DENABLE_CLANG_THUNKS=ON -DENABLE_CCACHE=ON -DBUILD_TESTING=OFF \
+              -DBUILD_THUNKS=OFF -DENABLE_ASSERTIONS=OFF -DCMAKE_IGNORE_PREFIX_PATH=/opt/homebrew &&
+            bash build/fex-arm64ec/build.sh
+          }
+          stage 07-fex-arm64ec fex_ec
+
+          # The unix-side scripts include wine/build-macos/include/config.h, a configured
+          # native Wine tree that is not documented anywhere; try a plain configure.
+          wine_cfg() {
+            mkdir -p wine/build-macos && cd wine/build-macos &&
+            ../configure --enable-win64 --disable-tests --without-x --without-freetype --without-vulkan \
+              --without-gstreamer --without-pcsclite --without-sdl --without-usb --without-v4l2 \
+              --without-pulse --without-alsa --without-oss --without-cups --without-dbus --without-gphoto \
+              --without-sane --without-krb5 --without-capi --without-opencl --without-pcap --without-unwind &&
+            ls -l include/config.h
+          }
+          stage 07b-wine-configure wine_cfg
+
+          errs() {  # errs <dir>: first lines of the first few compiler error files
+            for f in $(ls "$1"/*.err "$1"/err-*.txt 2>/dev/null | head -4); do echo "--- $f"; head -n 12 "$f"; done
+          }
           stage 08-ntdll-unix bash build/ntdll-unix/build.sh
+          stage 08b-ntdll-errors errs build/ntdll-unix/obj
           stage 09-wineserver bash build/wineserver/build.sh
           stage 10-win32u-unix bash build/win32u-unix/build.sh
+          stage 10b-win32u-errors errs build/win32u-unix/obj
           rp() { rustup target add aarch64-apple-ios && bash build/rppairing-ios/build.sh; }
           stage 11-rppairing rp
 
