@@ -1,0 +1,89 @@
+name: madeira-probe
+
+# Stage 1: find out how far an unmodified willfaust/Madeira gets on a macOS
+# runner. Every stage runs even if an earlier one failed; the summary lists each.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Madeira git ref to build
+        default: main
+
+jobs:
+  probe:
+    runs-on: macos-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe
+        shell: bash
+        env:
+          MADEIRA_REF: ${{ inputs.ref }}
+        run: |
+          set +e
+          mkdir -p "$GITHUB_WORKSPACE/logs"
+          SUMMARY="$GITHUB_STEP_SUMMARY"
+          echo "| stage | result | seconds |" >> "$SUMMARY"
+          echo "|---|---|---|" >> "$SUMMARY"
+          stage() {  # stage <name> <command...>
+            local name="$1"; shift
+            local t0=$SECONDS
+            echo "::group::$name"
+            "$@" > "$GITHUB_WORKSPACE/logs/$name.log" 2>&1
+            local rc=$?
+            tail -n 40 "$GITHUB_WORKSPACE/logs/$name.log"
+            echo "::endgroup::"
+            echo "| $name | $([ $rc -eq 0 ] && echo OK || echo "FAIL rc=$rc") | $((SECONDS-t0)) |" >> "$SUMMARY"
+            return $rc
+          }
+
+          info() {
+            sw_vers; uname -m; xcodebuild -version; xcrun --sdk iphoneos --show-sdk-version
+            ls /Applications | grep -i xcode; df -h /; sysctl -n hw.ncpu hw.memsize
+            cargo --version; python3 --version; cmake --version | head -1
+          }
+          stage 00-info info
+
+          clone() {
+            git clone https://github.com/willfaust/Madeira.git "$GITHUB_WORKSPACE/madeira" &&
+            cd "$GITHUB_WORKSPACE/madeira" && git checkout "$MADEIRA_REF" &&
+            git submodule update --init --recursive --depth 1 &&
+            git log -1 --format=%H && git submodule status --recursive
+          }
+          stage 01-clone clone
+          cd "$GITHUB_WORKSPACE/madeira" || exit 0
+
+          tools() { brew install cmake ninja meson bison ccache sevenzip llvm; }
+          stage 02-brew tools
+
+          mingw() {
+            mkdir -p toolchains && cd toolchains &&
+            curl -fL -o llvm-mingw.tar.xz https://github.com/mstorsjo/llvm-mingw/releases/download/20260421/llvm-mingw-20260421-ucrt-macos-universal.tar.xz &&
+            echo "bd85a3975723815cef28dbbd2ca2cb0c926f6b348a12a0453f39f7af273cb3f7  llvm-mingw.tar.xz" | shasum -a 256 -c - &&
+            tar xf llvm-mingw.tar.xz && ls
+          }
+          stage 03-llvm-mingw mingw
+
+          stage 04-gnutls-tracked bash -c 'ls -l app/Madeira/lib{gmp,nettle,hogweed,gnutls}.a'
+          stage 05-ffmpeg bash build/ffmpeg/build.sh
+          stage 06-fex-ios bash build/fex-ios/build.sh
+          stage 07-fex-arm64ec bash build/fex-arm64ec/build.sh
+          stage 08-ntdll-unix bash build/ntdll-unix/build.sh
+          stage 09-wineserver bash build/wineserver/build.sh
+          stage 10-win32u-unix bash build/win32u-unix/build.sh
+          rp() { rustup target add aarch64-apple-ios && bash build/rppairing-ios/build.sh; }
+          stage 11-rppairing rp
+
+          vcrt() {
+            mkdir -p /tmp/vc && cd /tmp/vc &&
+            curl -fL -o vc_redist.x64.exe https://aka.ms/vs/17/release/vc_redist.x64.exe &&
+            7zz x -y vc_redist.x64.exe -o/tmp/vc/x >/dev/null; ls -R /tmp/vc | head -40
+          }
+          stage 12-vcruntime-fetch vcrt
+
+          echo "Not attempted in this probe: dxmt-ios (needs LLVM for iOS, hours), xcodebuild." >> "$SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: probe-logs
+          path: logs/
