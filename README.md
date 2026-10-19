@@ -58,3 +58,11 @@ python3 -I tools/resource_manifest.py <遊戲根目錄> manifest.json
 - `prepare.py`（Mach-O 平台/依賴轉換）、`stage.py`（逐個簽名＋嚴格驗證）、UIKit 宿主與相容層、`transfer_resources.py`。
 - 以真實崩潰證據找出 Watch Dogs 2 的預留位址/棧需求，再填 `patches.json`。
 - 這些在沒有目標二進位前不能憑空寫對；請先提供第 0 關的審計輸出。
+
+## 用 GitHub Actions 編譯 IPA
+
+`.github/workflows/build-ipa.yml`：Linux 跑工具測試；macOS runner 在 `host/*.xcodeproj` 存在時編出**未簽名**宿主 IPA 並上傳為 artifact（目前沒有 Xcode 專案，所以該 job 會跳過；尚未在 Actions 上實際跑過）。
+
+- 遊戲主程式與資源（版權、體積）不進 repo／CI。注入遊戲庫（`stage.py`）與簽名在自己的 Mac 做。
+- 沒有付費開發帳號時，可把未簽名 IPA 交給 Sideloadly/AltStore 重簽；但 `increased-memory-limit` 等 entitlement 免費帳號不一定拿得到，記憶體上限會因此不同，需實測。
+- 若要在 CI 內簽名，需把憑證與描述文件放 repository secrets；這是敏感資料，建議先不要。

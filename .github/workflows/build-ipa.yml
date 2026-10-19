@@ -1,0 +1,46 @@
+name: build-ipa
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  tools-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -I -m unittest discover -s tests
+
+  # Builds the UIKit host only. Game binaries/resources are never in CI.
+  # Skipped until an Xcode project exists under host/.
+  host-ipa:
+    needs: tools-test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Locate project
+        id: proj
+        run: |
+          p=$(ls -d host/*.xcodeproj 2>/dev/null | head -1 || true)
+          echo "path=$p" >> "$GITHUB_OUTPUT"
+          [ -n "$p" ] || echo "No host/*.xcodeproj yet; skipping."
+      - name: Build unsigned app
+        if: steps.proj.outputs.path != ''
+        run: |
+          xcodebuild -project "${{ steps.proj.outputs.path }}" \
+            -scheme "${SCHEME:-Host}" -configuration Release \
+            -sdk iphoneos -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
+      - name: Package unsigned IPA
+        if: steps.proj.outputs.path != ''
+        run: |
+          app=$(ls -d build/Build/Products/Release-iphoneos/*.app | head -1)
+          mkdir -p ipa/Payload && cp -R "$app" ipa/Payload/
+          (cd ipa && zip -qry ../Host-unsigned.ipa Payload)
+      - uses: actions/upload-artifact@v4
+        if: steps.proj.outputs.path != ''
+        with:
+          name: Host-unsigned-ipa
+          path: Host-unsigned.ipa
