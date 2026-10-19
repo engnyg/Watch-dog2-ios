@@ -258,8 +258,8 @@ jobs:
             echo "=== ERRORS $n ==="; grep -a -E "FAILED:|error:|Error |CMake Error" "$GITHUB_WORKSPACE/logs/$n.log" | head -30
             echo "=== TAIL $n ==="; tail -n 60 "$GITHUB_WORKSPACE/logs/$n.log" | cut -c1-300
           done
-          for f in $(ls "$GITHUB_WORKSPACE"/madeira/build/dxmt-ios/obj/*.err 2>/dev/null | head -4); do
-            echo "=== DXMT ERR $f ==="; head -n 12 "$f" | cut -c1-300
+          for f in $(find "$GITHUB_WORKSPACE"/madeira/build/dxmt-ios/obj -name '*.err' -size +0 2>/dev/null | head -4); do
+            echo "=== DXMT ERR $f ==="; grep -a -E "error|Error" "$f" | head -n 12 | cut -c1-400
           done
           for n in 13f-lib-inventory 13d-dxmt-ios 14-xcodebuild; do
             echo "=== TAIL $n ==="; tail -n 22 "$GITHUB_WORKSPACE/logs/$n.log"
