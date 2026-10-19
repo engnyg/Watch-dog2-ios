@@ -14,12 +14,12 @@
 
 Reproduced in two runs (same result within ~15 s of sign-in on the second run). Not a one-off network blip.
 
-**Suspected cause (from reading the source, not verified on device)**
-`DepotDownloader` writes the shared-owner record only when `app.sharedOwners[ownerID]` exists; otherwise it counts `owners-skipped`. The code comment says Valve's client refuses to launch until the owner app has its own record ("required app N not ready", as with GTA V Enhanced / 1899670).
-My log for 447040 has exactly that: `[steam-shared] app=447040 owners=0 resolved=0 missing=0` and `[steam-shared-record] app=447040 shared=1 owners-written=0 owners-skipped=1`. The depot selection shows depots 228983/228984/228989/228990 as `shared<228980`, so the owner is app 228980 and no `appmanifest_228980.acf` was written. Steam then reports error 17 (needs content).
-`fetchAppInfo(228980)` may have returned nil here (the same session logged `url--1200` TLS failures), or `sharedOwners` was never filled for this app.
+**Update after a manual experiment (this narrows it down)**
+The shared depot is `1716751` from owner app `1716750` (Ubisoft Connect PC Client), listed in my `appmanifest_447040.acf` as `"SharedDepots" { "1716751" "1716750" }`. The install log shows `[steam-shared-record] app=447040 shared=1 owners-written=0 owners-skipped=1`, so no `appmanifest_1716750.acf` was written by Madeira.
+- Before: Valve's client created its own `appmanifest_1716750.acf` (StateFlags 66, empty InstalledDepots, buildid 0) and set my `appmanifest_447040.acf` to StateFlags 6 (update required). Launch: `launch-client-error=17`, `launch-update-wait=17`.
+- I then replaced the owner record with the layout Madeira AppManifestWriter uses (StateFlags 4, buildid 25883745, InstalledDepots 1716751 with manifest 8458906404271031972, size 264202144; values from a public mirror). Valve's client did not rewrite it.
+- After: error 17 is gone. Now `launch-client-error=22`, `launch-config-wait=22`, retries 1-3, then `launch-config-gave-up=24`, `probe-result=45`; the screen says "Steam did not finish loading this game's configuration after signing in." Two runs, 93 s and 150 s, same result. `appmanifest_447040.acf` is still StateFlags 6.
 
-**Question**
-Could the owner record be written (or the owner metadata re-fetched) when `sharedOwners` is empty but `shared` is not? Is there a supported way to repair an already installed game, without re-downloading 26 GB?
+So writing the owner record seems necessary but not sufficient. Why did `owners-skipped=1` happen (`fetchAppInfo(1716750)` nil? the session also logged `url--1200` TLS failures)? And what makes Valve's client not load the game's config afterwards?
 
 **Attachments:** madeira-log.txt (run 1 and run 2), madeira-library.json. I checked them for account names before posting.
