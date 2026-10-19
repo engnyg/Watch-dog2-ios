@@ -212,13 +212,14 @@ jobs:
             [ -f "$C/llvm-ios-build/.done" ] || {
               cmake -S "$C/llvm-project/llvm" -B "$C/llvm-ios-build" -G Ninja \
                 -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_SYSROOT=iphoneos \
-                -DCMAKE_OSX_DEPLOYMENT_TARGET=17.0 -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_OSX_DEPLOYMENT_TARGET=17.0 -DCMAKE_BUILD_TYPE=Release -DCMAKE_MACOSX_BUNDLE=OFF \
                 -DLLVM_HOST_TRIPLE=arm64-apple-ios17.0 -DLLVM_DEFAULT_TARGET_TRIPLE=arm64-apple-ios17.0 \
                 -DLLVM_TARGET_ARCH=host -DLLVM_TARGETS_TO_BUILD= -DLLVM_ENABLE_PROJECTS= -DLLVM_BUILD_TOOLS=OFF \
                 -DLLVM_INCLUDE_TESTS=OFF -DLLVM_INCLUDE_EXAMPLES=OFF -DLLVM_INCLUDE_BENCHMARKS=OFF -DLLVM_INCLUDE_DOCS=OFF \
                 -DLLVM_ENABLE_ZLIB=OFF -DLLVM_ENABLE_ZSTD=OFF -DLLVM_ENABLE_TERMINFO=OFF -DLLVM_ENABLE_LIBXML2=OFF \
                 -DLLVM_NATIVE_TOOL_DIR="$C/llvm-host-build/bin" &&
               ninja -C "$C/llvm-ios-build" && touch "$C/llvm-ios-build/.done"; }
+            [ -f "$C/llvm-ios-build/.done" ] || return 1
             ln -sfn "$C/llvm-ios-build" toolchains/llvm-ios-build
             find "$C/llvm-ios-build/lib" -name '*.a' | wc -l
           }
@@ -256,6 +257,7 @@ jobs:
         run: |
           app=$(ls -d madeira/build/dd/Build/Products/Debug-iphoneos/Madeira.app 2>/dev/null | head -1)
           [ -n "$app" ] || { echo "no app built"; exit 0; }
+          grep -q "BUILD SUCCEEDED" logs/14-xcodebuild.log || { echo "xcodebuild did not succeed; not packaging a broken app"; exit 0; }
           mkdir -p ipa/Payload && cp -R "$app" ipa/Payload/ && (cd ipa && zip -qry ../Madeira-unsigned.ipa Payload) && ls -l Madeira-unsigned.ipa
       - uses: actions/upload-artifact@v4
         if: always()
