@@ -261,6 +261,8 @@ jobs:
               -destination 'generic/platform=iOS' -derivedDataPath build/dd \
               CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build
           }
+          # The Xcode 'Sign bundled dylibs' phase fails when the bundled licence copies are stale.
+          stage 13g-licenses bash build/stage-licenses.sh
           stage 14-xcodebuild xcb
           echo "=== XCODEBUILD ERRORS ==="; grep -a -E "error:|ld: (symbol|library|framework|file) .*(not found|cannot|unknown)|No such file|duplicate symbol '_[a-zA-Z]" "$GITHUB_WORKSPACE/logs/14-xcodebuild.log" | grep -a -v "warning:" | cut -c1-400 | sort -u | head -30
           echo "=== UNDEFINED SYMBOLS ==="; grep -a -A40 "^Undefined symbols" "$GITHUB_WORKSPACE/logs/14-xcodebuild.log" | grep -a -E '^  "|referenced from' | cut -c1-300 | head -60
