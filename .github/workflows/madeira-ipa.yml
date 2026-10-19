@@ -19,7 +19,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/llvm-cache
-          key: llvm-ios-8dfdcc7b7-v1
+          key: llvm-ios-8dfdcc7b7-v2
       - name: Build
         shell: bash
         env:
@@ -199,11 +199,11 @@ jobs:
           stage 13a-llvm-src llvm_src
           llvm_host() {
             C="$HOME/llvm-cache"
-            [ -x "$C/llvm-host-build/bin/llvm-tblgen" ] || {
+            [ -x "$C/llvm-host-build/bin/llvm-tblgen" ] && [ -x "$C/llvm-host-build/bin/llvm-min-tblgen" ] || {
               cmake -S "$C/llvm-project/llvm" -B "$C/llvm-host-build" -G Ninja -DCMAKE_BUILD_TYPE=Release \
                 -DLLVM_TARGETS_TO_BUILD= -DLLVM_ENABLE_PROJECTS= -DLLVM_INCLUDE_TESTS=OFF -DLLVM_ENABLE_ZLIB=OFF \
                 -DLLVM_ENABLE_ZSTD=OFF -DLLVM_ENABLE_TERMINFO=OFF -DLLVM_ENABLE_LIBXML2=OFF &&
-              ninja -C "$C/llvm-host-build" llvm-tblgen; }
+              ninja -C "$C/llvm-host-build" llvm-tblgen llvm-min-tblgen; }
             ln -sfn "$C/llvm-host-build" toolchains/llvm-host-build; ls "$C/llvm-host-build/bin"
           }
           stage 13b-llvm-host llvm_host
@@ -218,7 +218,7 @@ jobs:
                 -DLLVM_INCLUDE_TESTS=OFF -DLLVM_INCLUDE_EXAMPLES=OFF -DLLVM_INCLUDE_BENCHMARKS=OFF -DLLVM_INCLUDE_DOCS=OFF \
                 -DLLVM_ENABLE_ZLIB=OFF -DLLVM_ENABLE_ZSTD=OFF -DLLVM_ENABLE_TERMINFO=OFF -DLLVM_ENABLE_LIBXML2=OFF \
                 -DLLVM_NATIVE_TOOL_DIR="$C/llvm-host-build/bin" &&
-              ninja -C "$C/llvm-ios-build" && touch "$C/llvm-ios-build/.done"; }
+              ninja -C "$C/llvm-ios-build" -k 0 && touch "$C/llvm-ios-build/.done"; }
             [ -f "$C/llvm-ios-build/.done" ] || return 1
             ln -sfn "$C/llvm-ios-build" toolchains/llvm-ios-build
             find "$C/llvm-ios-build/lib" -name '*.a' | wc -l
@@ -248,6 +248,13 @@ jobs:
           stage 14-xcodebuild xcb
           echo "=== XCODEBUILD ERRORS ==="; grep -a -E "error:|ld: |Undefined symbols|not found|No such file" "$GITHUB_WORKSPACE/logs/14-xcodebuild.log" | sort -u | head -40
           echo "=== SUMMARY ==="; cat "$SUMMARY"
+          for n in 13c-llvm-ios; do
+            echo "=== ERRORS $n ==="; grep -a -E "FAILED:|error:|Error |CMake Error" "$GITHUB_WORKSPACE/logs/$n.log" | head -30
+            echo "=== TAIL $n ==="; tail -n 60 "$GITHUB_WORKSPACE/logs/$n.log" | cut -c1-300
+          done
+          for f in $(ls "$GITHUB_WORKSPACE"/madeira/build/dxmt-ios/obj/*.err 2>/dev/null | head -4); do
+            echo "=== DXMT ERR $f ==="; head -n 12 "$f" | cut -c1-300
+          done
           for n in 13f-lib-inventory 13d-dxmt-ios 14-xcodebuild; do
             echo "=== TAIL $n ==="; tail -n 22 "$GITHUB_WORKSPACE/logs/$n.log"
           done
