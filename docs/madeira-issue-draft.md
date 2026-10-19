@@ -22,4 +22,9 @@ The shared depot is `1716751` from owner app `1716750` (Ubisoft Connect PC Clien
 
 So writing the owner record seems necessary but not sufficient. Why did `owners-skipped=1` happen (`fetchAppInfo(1716750)` nil? the session also logged `url--1200` TLS failures)? And what makes Valve's client not load the game's config afterwards?
 
+**Root cause of the error 22 stage (from Valve's own `logs/content_log.txt`)**
+After the owner record was in place, Valve's client logged on every run: `Failed running app 447040 (entry for launch option 0 not found)`. With the earlier state it logged `required app 1716750 not ready`. Public product info for 447040 has `config.launch` with a single entry whose key is `"1"` (`bin\\WatchDogs2.exe`, `-uplay_steam_mode`), no key `"0"`. The Dock host asked for option 0.
+Madeira's current source already resolves the real key (`ContentView` logs `[madeira-dock] launch option N`), but my v0.1.3 (4) build never prints that line, so the installed IPA predates it. Question: which release contains the launch-key change?
+Also: with StateFlags 4 in `appmanifest_447040.acf` Steam stopped listing the app as "Update Required", so that flag was not the blocker.
+
 **Attachments:** madeira-log.txt (run 1 and run 2), madeira-library.json. I checked them for account names before posting.
