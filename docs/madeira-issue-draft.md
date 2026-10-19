@@ -14,7 +14,12 @@
 
 Reproduced in two runs (same result within ~15 s of sign-in on the second run). Not a one-off network blip.
 
+**Suspected cause (from reading the source, not verified on device)**
+`DepotDownloader` writes the shared-owner record only when `app.sharedOwners[ownerID]` exists; otherwise it counts `owners-skipped`. The code comment says Valve's client refuses to launch until the owner app has its own record ("required app N not ready", as with GTA V Enhanced / 1899670).
+My log for 447040 has exactly that: `[steam-shared] app=447040 owners=0 resolved=0 missing=0` and `[steam-shared-record] app=447040 shared=1 owners-written=0 owners-skipped=1`. The depot selection shows depots 228983/228984/228989/228990 as `shared<228980`, so the owner is app 228980 and no `appmanifest_228980.acf` was written. Steam then reports error 17 (needs content).
+`fetchAppInfo(228980)` may have returned nil here (the same session logged `url--1200` TLS failures), or `sharedOwners` was never filled for this app.
+
 **Question**
-By MadeiraDock.launchRefusal, 17/19/20 mean Steam wants content the game depends on. Which content is it (redistributables / shared depots 228980..228990 are in the depot selection)? Is there a way to make Steam's client accept the Madeira-installed files, e.g. validate or re-register, without re-downloading 26 GB?
+Could the owner record be written (or the owner metadata re-fetched) when `sharedOwners` is empty but `shared` is not? Is there a supported way to repair an already installed game, without re-downloading 26 GB?
 
 **Attachments:** madeira-log.txt (run 1 and run 2), madeira-library.json. I checked them for account names before posting.
