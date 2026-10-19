@@ -82,7 +82,6 @@ jobs:
 
           # FEX ARM64EC: a Homebrew fmt must not be found for a MinGW target.
           fex_ec() {
-            brew uninstall --ignore-dependencies fmt || true
             R="$PWD"
             export PATH="$R/toolchains/llvm-mingw-20260421-ucrt-macos-universal/bin:$PATH"
             cmake -S "$R/FEX" -B "$R/FEX/build-arm64ec" -G Ninja -DCMAKE_BUILD_TYPE=Release \
@@ -90,7 +89,7 @@ jobs:
               -DTUNE_CPU=cortex-a78 -DFEX_IOS_HOST_BUILD=ON -DCMAKE_C_FLAGS=-DFEX_IOS_HOST=1 \
               -DCMAKE_CXX_FLAGS=-DFEX_IOS_HOST=1 -DCMAKE_ASM_FLAGS=-DFEX_IOS_HOST=1 -DENABLE_LTO=OFF \
               -DENABLE_FEX_ALLOCATOR=ON -DENABLE_JEMALLOC_GLIBC_ALLOC=ON -DENABLE_OFFLINE_RUNTIME=ON \
-              -DBUILD_FEXCONFIG=ON -DENABLE_CLANG_THUNKS=ON -DENABLE_CCACHE=ON -DBUILD_TESTING=OFF \
+              -DBUILD_FEXCONFIG=ON -DENABLE_CLANG_THUNKS=ON -DENABLE_CCACHE=OFF -DBUILD_TESTING=OFF \
               -DBUILD_THUNKS=OFF -DENABLE_ASSERTIONS=OFF -DCMAKE_IGNORE_PREFIX_PATH=/opt/homebrew &&
             bash build/fex-arm64ec/build.sh
           }
@@ -119,15 +118,47 @@ jobs:
           # Wine's generated headers (objidlbase.h, ...) and server request tables.
           wine_gen() {
             export PATH="$(brew --prefix bison)/bin:$PWD/toolchains/llvm-mingw-20260421-ucrt-macos-universal/bin:$PATH"
-            cd wine/build-macos && make -j3 __tooldeps__ &&
-            make -j3 include; echo "include rc=$?"
-            make -j3 -C server request_handlers.h 2>&1 | tail -5
-            ls include/objidlbase.h server/request_handlers.h
+            cd wine/build-macos && make -j3 __tooldeps__ || return 1
+            for f in ../include/*.idl; do echo "include/$(basename "$f" .idl).h"; done | xargs make -j3 -k
+            echo "idl headers rc=$?"
+            make -j3 -k server/request_handlers.h server/request.h 2>&1 | tail -5
+            ls -l include/objidlbase.h include/wtypes.h server/request_handlers.h
           }
           stage 07d-wine-generated wine_gen
+          # FreeType headers/lib for dwrite and win32u.
+          ft() {
+            git clone --depth 1 --branch VER-2-13-3 https://github.com/freetype/freetype.git research/freetype &&
+            bash build/freetype-ios/build.sh
+          }
+          stage 07e-freetype-ios ft
+          # The iPhoneOS 26.5 SDK's rusage_info_v6 has no ri_page_wait_time_mach; it is only
+          # used for the pgw= column of a diagnostic log line, so report 0 here.
+          sdkfix() {
+            grep -rln "ri_page_wait_time_mach" build/ntdll-unix | xargs sed -i '' \
+              's/XP_MS( ru.ri_page_wait_time_mach - pru.ri_page_wait_time_mach )/0.0/g'
+            grep -rn "ri_page_wait_time_mach" build/ntdll-unix || echo "patched"
+          }
+          stage 07f-sdk-compat sdkfix
           stage 08-ntdll-unix bash build/ntdll-unix/build.sh
           stage 08b-ntdll-errors errs build/ntdll-unix/obj
+          # The wineserver script patches a prebuilt base archive that is not in the
+          # repository. Rebuild a base from Wine's server sources with the script's own flags.
+          ws_base() {
+            BUILD_DIR="$PWD/build/wineserver"; REPO_ROOT="$PWD"; WINE_SRC="$PWD/wine"
+            SDK=$(xcrun --sdk iphoneos --show-sdk-path); SHIMS_DIR="$PWD/build/ntdll-unix/shims"
+            O="$BUILD_DIR/obj"; mkdir -p "$O"
+            eval "$(sed -n '/^CC_FLAGS=(/,/^)/p' build/wineserver/build.sh)"
+            ok=0; bad=0
+            for src in wine/server/*.c; do
+              n=$(basename "$src" .c)
+              if xcrun -sdk iphoneos clang "${CC_FLAGS[@]}" -c "$src" -o "$O/$n.o" 2> "$O/err-base-$n.txt"; then ok=$((ok+1)); else bad=$((bad+1)); echo "FAIL $n"; fi
+            done
+            echo "base objects: ok=$ok failed=$bad"
+            ar rcs "$O/libwineserver.a" "$O"/*.o && ls -l "$O/libwineserver.a"
+          }
+          stage 08c-wineserver-base ws_base
           stage 09-wineserver bash build/wineserver/build.sh
+          stage 09b-wineserver-errors errs build/wineserver/obj
           stage 10-win32u-unix bash build/win32u-unix/build.sh
           stage 10b-win32u-errors errs build/win32u-unix/obj
           rp() { rustup target add aarch64-apple-ios && bash build/rppairing-ios/build.sh; }
@@ -148,10 +179,11 @@ jobs:
           stage 12-vcruntime-fetch vcrt
 
           echo "=== SUMMARY ==="; cat "$SUMMARY"
-          for n in 07-fex-arm64ec 07c-gnutls-ios 07d-wine-generated; do
+          for n in 07-fex-arm64ec 07d-wine-generated 07e-freetype-ios 07f-sdk-compat 08c-wineserver-base 09-wineserver; do
             echo "=== TAIL $n ==="; tail -n 22 "$GITHUB_WORKSPACE/logs/$n.log"
           done
           echo "=== ERRORS 08b ==="; cat "$GITHUB_WORKSPACE/logs/08b-ntdll-errors.log" | head -40
+          echo "=== ERRORS 09b ==="; head -30 "$GITHUB_WORKSPACE/logs/09b-wineserver-errors.log"
           echo "=== ERRORS 10b ==="; cat "$GITHUB_WORKSPACE/logs/10b-win32u-errors.log" | head -40
           echo "Not attempted in this probe: dxmt-ios (needs LLVM for iOS, hours), xcodebuild." >> "$SUMMARY"
       - uses: actions/upload-artifact@v4
