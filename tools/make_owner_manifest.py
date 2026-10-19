@@ -12,6 +12,11 @@ Override with --name / --installdir if you know them.
 
 Usage: python3 -I tools/make_owner_manifest.py <appmanifest_447040.acf> <owner appid> <out dir>
                                                [--name N] [--installdir D]
+                                               [--build ID] [--manifest GID] [--size BYTES]
+
+With --build/--manifest/--size (public values for the owner app and the shared
+depot, e.g. from SteamDB) the record matches what Madeira writes when it can
+resolve the owner; without them Steam sees build 0 and asks for an update.
 """
 import os
 import re
@@ -40,18 +45,23 @@ def opt(flag):
     return sys.argv[sys.argv.index(flag) + 1] if flag in sys.argv else None
 
 
-def build(owner, depots, last_owner, name, installdir):
+def build(owner, depots, last_owner, name, installdir, buildid="0", manifest=None, size=None):
     L = ['"AppState"', "{", f'\t"appid"\t\t"{owner}"', '\t"universe"\t\t"1"',
          f'\t"name"\t\t"{name}"', '\t"StateFlags"\t\t"4"', f'\t"installdir"\t\t"{installdir}"',
-         '\t"LastUpdated"\t\t"0"', '\t"LastPlayed"\t\t"0"', '\t"SizeOnDisk"\t\t"0"',
-         '\t"StagingSize"\t\t"0"', '\t"buildid"\t\t"0"', f'\t"LastOwner"\t\t"{last_owner}"',
+         '\t"LastUpdated"\t\t"0"', '\t"LastPlayed"\t\t"0"', f'\t"SizeOnDisk"\t\t"{size or 0}"',
+         '\t"StagingSize"\t\t"0"', f'\t"buildid"\t\t"{buildid}"', f'\t"LastOwner"\t\t"{last_owner}"',
          '\t"DownloadType"\t\t"1"', '\t"UpdateResult"\t\t"0"', '\t"BytesToDownload"\t\t"0"',
          '\t"BytesDownloaded"\t\t"0"', '\t"BytesToStage"\t\t"0"', '\t"BytesStaged"\t\t"0"',
-         '\t"TargetBuildID"\t\t"0"', '\t"AutoUpdateBehavior"\t\t"0"',
+         f'\t"TargetBuildID"\t\t"{buildid}"', '\t"AutoUpdateBehavior"\t\t"0"',
          '\t"AllowOtherDownloadsWhileRunning"\t\t"0"', '\t"ScheduledAutoUpdate"\t\t"0"',
          '\t"InstalledDepots"', "\t{"]
     for d in depots:
-        L += [f'\t\t"{d}"', "\t\t{", "\t\t}"]
+        L += [f'\t\t"{d}"', "\t\t{"]
+        if manifest:
+            L.append(f'\t\t\t"manifest"\t\t"{manifest}"')
+        if size:
+            L.append(f'\t\t\t"size"\t\t"{size}"')
+        L.append("\t\t}")
     L += ["\t}", '\t"UserConfig"', "\t{", '\t\t"language"\t\t"english"', "\t}",
           '\t"MountedConfig"', "\t{", '\t\t"language"\t\t"english"', "\t}", "}"]
     return "\n".join(L)
@@ -70,5 +80,6 @@ if __name__ == "__main__":
         sys.exit(f"{out} already exists; not overwriting")
     open(out, "w", encoding="utf-8", newline="\n").write(
         build(owner, depots, steam_id(text), opt("--name") or f"App {owner}",
-              opt("--installdir") or field(text, "installdir")))
+              opt("--installdir") or field(text, "installdir"),
+              opt("--build") or "0", opt("--manifest"), opt("--size")))
     print("wrote", out, "depots", depots)
