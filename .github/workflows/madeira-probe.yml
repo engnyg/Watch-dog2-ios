@@ -109,9 +109,22 @@ jobs:
           }
           stage 07b-wine-configure wine_cfg
 
-          errs() {  # errs <dir>: first lines of the first few compiler error files
-            for f in $(ls "$1"/*.err "$1"/err-*.txt 2>/dev/null | head -4); do echo "--- $f"; head -n 12 "$f"; done
+          errs() {  # errs <dir>: first error lines of every compiler error file that has one
+            for f in "$1"/*.err "$1"/err-*.txt; do
+              [ -f "$f" ] && grep -q "error" "$f" && { echo "--- $f"; grep -m3 "error" "$f"; }
+            done
           }
+          # GnuTLS headers for the crypto unixlibs (the .a files are tracked, the headers are not).
+          stage 07c-gnutls-ios bash build/gnutls-ios/build.sh
+          # Wine's generated headers (objidlbase.h, ...) and server request tables.
+          wine_gen() {
+            export PATH="$(brew --prefix bison)/bin:$PWD/toolchains/llvm-mingw-20260421-ucrt-macos-universal/bin:$PATH"
+            cd wine/build-macos && make -j3 __tooldeps__ &&
+            make -j3 include; echo "include rc=$?"
+            make -j3 -C server request_handlers.h 2>&1 | tail -5
+            ls include/objidlbase.h server/request_handlers.h
+          }
+          stage 07d-wine-generated wine_gen
           stage 08-ntdll-unix bash build/ntdll-unix/build.sh
           stage 08b-ntdll-errors errs build/ntdll-unix/obj
           stage 09-wineserver bash build/wineserver/build.sh
@@ -135,6 +148,11 @@ jobs:
           stage 12-vcruntime-fetch vcrt
 
           echo "=== SUMMARY ==="; cat "$SUMMARY"
+          for n in 07-fex-arm64ec 07c-gnutls-ios 07d-wine-generated; do
+            echo "=== TAIL $n ==="; tail -n 22 "$GITHUB_WORKSPACE/logs/$n.log"
+          done
+          echo "=== ERRORS 08b ==="; cat "$GITHUB_WORKSPACE/logs/08b-ntdll-errors.log" | head -40
+          echo "=== ERRORS 10b ==="; cat "$GITHUB_WORKSPACE/logs/10b-win32u-errors.log" | head -40
           echo "Not attempted in this probe: dxmt-ios (needs LLVM for iOS, hours), xcodebuild." >> "$SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
