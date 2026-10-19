@@ -6,7 +6,12 @@ writes appmanifest_<owner>.acf in the layout Madeira's AppManifestWriter uses
 for owners. Experimental: manifest ids and the build id are unknown (0), so
 Steam may still ask to verify. Never overwrites an existing file.
 
+Name and install folder of the owner are unknown here, so, like Madeira's own
+fallback, the name is "App <owner>" and the folder is the game's installdir.
+Override with --name / --installdir if you know them.
+
 Usage: python3 -I tools/make_owner_manifest.py <appmanifest_447040.acf> <owner appid> <out dir>
+                                               [--name N] [--installdir D]
 """
 import os
 import re
@@ -24,6 +29,15 @@ def shared_depots(text, owner):
 def steam_id(text):
     m = re.search(r'"LastOwner"\s+"(\d+)"', text)
     return m.group(1) if m else "0"
+
+
+def field(text, key):
+    m = re.search(r'"%s"\s+"([^"]*)"' % key, text)
+    return m.group(1) if m else ""
+
+
+def opt(flag):
+    return sys.argv[sys.argv.index(flag) + 1] if flag in sys.argv else None
 
 
 def build(owner, depots, last_owner, name, installdir):
@@ -44,7 +58,7 @@ def build(owner, depots, last_owner, name, installdir):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 4:
+    if len(sys.argv) < 4:
         sys.exit(__doc__)
     game, owner, outdir = sys.argv[1], sys.argv[2], sys.argv[3]
     text = open(game, encoding="utf-8").read()
@@ -55,5 +69,6 @@ if __name__ == "__main__":
     if os.path.exists(out):
         sys.exit(f"{out} already exists; not overwriting")
     open(out, "w", encoding="utf-8", newline="\n").write(
-        build(owner, depots, steam_id(text), "Steamworks Common Redistributables", "Steamworks Shared"))
+        build(owner, depots, steam_id(text), opt("--name") or f"App {owner}",
+              opt("--installdir") or field(text, "installdir")))
     print("wrote", out, "depots", depots)
