@@ -98,6 +98,7 @@ jobs:
           # The unix-side scripts include wine/build-macos/include/config.h, a configured
           # native Wine tree that is not documented anywhere; try a plain configure.
           wine_cfg() {
+            export PATH="$(brew --prefix bison)/bin:$PATH"
             mkdir -p wine/build-macos && cd wine/build-macos &&
             ../configure --enable-win64 --disable-tests --without-x --without-freetype --without-vulkan \
               --without-gstreamer --without-pcsclite --without-sdl --without-usb --without-v4l2 \
