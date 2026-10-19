@@ -1,0 +1,7 @@
+{
+  "game_root": "/path/to/Steam/steamapps/common/<Watch Dogs 2>",
+  "main_binary": "<relative path to Mach-O>",
+  "bundle_id": "local.watchdogs2.ipados.probe",
+  "device_udid": "YOUR_IPAD_UDID",
+  "signing_identity": "Apple Development: YOUR NAME (TEAMID)"
+}

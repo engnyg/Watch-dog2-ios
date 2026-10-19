@@ -1,0 +1,6 @@
+.DS_Store
+build/
+DerivedData/
+*.cp2077-part
+config.json
+evidence/*.ips
