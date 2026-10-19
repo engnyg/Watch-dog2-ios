@@ -29,7 +29,7 @@ jobs:
             local name="$1"; shift
             local t0=$SECONDS
             echo "::group::$name"
-            "$@" > "$GITHUB_WORKSPACE/logs/$name.log" 2>&1
+            ( cd "${STAGE_DIR:-$GITHUB_WORKSPACE}" && "$@" ) > "$GITHUB_WORKSPACE/logs/$name.log" 2>&1
             local rc=$?
             tail -n 40 "$GITHUB_WORKSPACE/logs/$name.log"
             echo "::endgroup::"
@@ -51,7 +51,8 @@ jobs:
             git log -1 --format=%H && git submodule status --recursive
           }
           stage 01-clone clone
-          cd "$GITHUB_WORKSPACE/madeira" || exit 0
+          export STAGE_DIR="$GITHUB_WORKSPACE/madeira"
+          [ -d "$STAGE_DIR" ] || exit 0
 
           tools() { brew install cmake ninja meson bison ccache sevenzip llvm; }
           stage 02-brew tools
@@ -77,7 +78,14 @@ jobs:
           vcrt() {
             mkdir -p /tmp/vc && cd /tmp/vc &&
             curl -fL -o vc_redist.x64.exe https://aka.ms/vs/17/release/vc_redist.x64.exe &&
-            7zz x -y vc_redist.x64.exe -o/tmp/vc/x >/dev/null; ls -R /tmp/vc | head -40
+            python3 - <<'PY'
+          import re,struct
+          d=open('/tmp/vc/vc_redist.x64.exe','rb').read()
+          for i,m in enumerate(re.finditer(b'MSCF\x00\x00\x00\x00',d)):
+              p=m.start(); n=struct.unpack_from('<I',d,p+8)[0]
+              open(f'/tmp/vc/c{i}.cab','wb').write(d[p:p+n]); print('cab',i,n)
+          PY
+            ls -l /tmp/vc
           }
           stage 12-vcruntime-fetch vcrt
 
