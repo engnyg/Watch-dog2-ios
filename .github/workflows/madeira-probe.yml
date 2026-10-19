@@ -54,7 +54,7 @@ jobs:
           export STAGE_DIR="$GITHUB_WORKSPACE/madeira"
           [ -d "$STAGE_DIR" ] || exit 0
 
-          tools() { brew install cmake ninja meson bison ccache sevenzip llvm; }
+          tools() { brew install cmake ninja meson bison ccache sevenzip llvm cabextract; }
           stage 02-brew tools
 
           mingw() {
@@ -165,7 +165,7 @@ jobs:
           stage 11-rppairing rp
 
           vcrt() {
-            mkdir -p /tmp/vc && cd /tmp/vc &&
+            rm -rf /tmp/vc && mkdir -p /tmp/vc/x /tmp/vc/z && cd /tmp/vc &&
             curl -fL -o vc_redist.x64.exe https://aka.ms/vs/17/release/vc_redist.x64.exe &&
             python3 - <<'PY'
           import re,struct
@@ -174,17 +174,28 @@ jobs:
               p=m.start(); n=struct.unpack_from('<I',d,p+8)[0]
               open(f'/tmp/vc/c{i}.cab','wb').write(d[p:p+n]); print('cab',i,n)
           PY
-            ls -l /tmp/vc
+            cabextract -q -d x c1.cab && for f in x/a*; do file "$f" | grep -q Cabinet && cabextract -q -d z "$f" 2>/dev/null; done
+            DEST="$GITHUB_WORKSPACE/madeira/app/Madeira/x86_64-vcruntime"; mkdir -p "$DEST"
+            for n in concrt140 msvcp140 msvcp140_1 msvcp140_2 msvcp140_atomic_wait msvcp140_codecvt_ids vcamp140 \
+                     vccorlib140 vcomp140 vcruntime140 vcruntime140_1 vcruntime140_threads mfc140 mfc140u; do
+              cp "z/$n.dll_amd64" "$DEST/$n.dll" || echo "MISSING $n"
+            done
+            ls "$DEST" | wc -l
           }
           stage 12-vcruntime-fetch vcrt
 
+          # First attempt at the app itself, unsigned. Missing inputs (libdxmt_combined.a ...) show here.
+          xcb() {
+            xcodebuild -project app/Madeira.xcodeproj -scheme Madeira -configuration Debug \
+              -destination 'generic/platform=iOS' -derivedDataPath build/dd \
+              CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build
+          }
+          stage 13-xcodebuild xcb
+          echo "=== XCODEBUILD ERRORS ==="; grep -a -E "error:|ld: |Undefined symbols|not found|No such file" "$GITHUB_WORKSPACE/logs/13-xcodebuild.log" | sort -u | head -40
           echo "=== SUMMARY ==="; cat "$SUMMARY"
-          for n in 07-fex-arm64ec 07d-wine-generated 07e-freetype-ios 07f-sdk-compat 08c-wineserver-base 09-wineserver; do
+          for n in 12-vcruntime-fetch 13-xcodebuild; do
             echo "=== TAIL $n ==="; tail -n 22 "$GITHUB_WORKSPACE/logs/$n.log"
           done
-          echo "=== ERRORS 08b ==="; cat "$GITHUB_WORKSPACE/logs/08b-ntdll-errors.log" | head -40
-          echo "=== ERRORS 09b ==="; head -30 "$GITHUB_WORKSPACE/logs/09b-wineserver-errors.log"
-          echo "=== ERRORS 10b ==="; cat "$GITHUB_WORKSPACE/logs/10b-win32u-errors.log" | head -40
           echo "Not attempted in this probe: dxmt-ios (needs LLVM for iOS, hours), xcodebuild." >> "$SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
