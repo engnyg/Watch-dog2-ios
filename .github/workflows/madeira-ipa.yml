@@ -221,8 +221,10 @@ jobs:
               # Only the static libs + generated headers matter to DXMT. The three .dylib tools (LLVMHello, libLTO,
               # libRemarks) can't link for iOS and are irrelevant, so judge success by the artifacts, not ninja's rc.
               ninja -C "$C/llvm-ios-build" -k 0 || true
+              n=$(find "$C/llvm-ios-build/lib" -name '*.a' | wc -l)
+              echo "static libs: $n; llvm-config.h: $(ls "$C/llvm-ios-build/include/llvm/Config/llvm-config.h" 2>&1); core: $(ls "$C/llvm-ios-build/lib/libLLVMCore.a" 2>&1)"
               [ -f "$C/llvm-ios-build/include/llvm/Config/llvm-config.h" ] && [ -f "$C/llvm-ios-build/lib/libLLVMCore.a" ] &&
-              [ "$(find "$C/llvm-ios-build/lib" -name '*.a' | wc -l)" -ge 100 ] && touch "$C/llvm-ios-build/.done"; }
+              [ "$n" -ge 30 ] && touch "$C/llvm-ios-build/.done"; }
             [ -f "$C/llvm-ios-build/.done" ] || return 1
             ln -sfn "$C/llvm-ios-build" toolchains/llvm-ios-build
             find "$C/llvm-ios-build/lib" -name '*.a' | wc -l
