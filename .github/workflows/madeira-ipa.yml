@@ -277,11 +277,17 @@ jobs:
             shasum -a 256 app/Madeira/arm64ec-windows/xtajit64.dll app/Madeira/libgnutls.a
           }
           stage 13i-restore-tracked restore_tracked
+          # Wine Mono (.NET Framework runtime): fetch.sh downloads the pinned build and checks its hashes; the Xcode phase
+          # "Bundle Wine Mono" then copies it into Madeira.app/wine-mono. Without this the app is built without Mono.
+          stage 13j-wine-mono bash build/wine-mono/fetch.sh
           stage 14-xcodebuild xcb
           echo "=== XCODEBUILD ERRORS ==="; grep -a -E "error:|ld: (symbol|library|framework|file) .*(not found|cannot|unknown)|No such file|duplicate symbol '_[a-zA-Z]" "$GITHUB_WORKSPACE/logs/14-xcodebuild.log" | grep -a -v "warning:" | cut -c1-400 | sort -u | head -30
           echo "=== UNDEFINED SYMBOLS ==="; grep -a -A40 "^Undefined symbols" "$GITHUB_WORKSPACE/logs/14-xcodebuild.log" | grep -a -E '^  "|referenced from' | cut -c1-300 | head -60
           echo "=== XCODEBUILD FINAL ==="; grep -a -E "BUILD (SUCCEEDED|FAILED)|The following build commands failed|^\s+(Ld|CompileSwift|SwiftCompile|PhaseScriptExecution|ProcessProductPackaging|CodeSign|Validate)" "$GITHUB_WORKSPACE/logs/14-xcodebuild.log" | tail -12 | cut -c1-300
           echo "=== SUMMARY ==="; cat "$SUMMARY"
+          for n in 13j-wine-mono; do
+            echo "=== TAIL $n ==="; tail -n 8 "$GITHUB_WORKSPACE/logs/$n.log" | cut -c1-300
+          done
           for n in 13i-restore-tracked; do
             echo "=== TAIL $n ==="; tail -n 25 "$GITHUB_WORKSPACE/logs/$n.log" | cut -c1-300
           done
