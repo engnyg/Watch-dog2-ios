@@ -263,6 +263,9 @@ jobs:
           }
           # The Xcode 'Sign bundled dylibs' phase fails when the bundled licence copies are stale.
           stage 13g-licenses bash build/stage-licenses.sh
+          # Madeira Dock: without app/Madeira/arm64ec-windows/dockhost.exe (a gitignored build output) the app hides ALL Steam
+          # features (MadeiraDock.enabled -> SteamOwnedLibrary.enabled). Built with the llvm-mingw from stage 03.
+          stage 13h-madeira-dock bash build/madeira-dock/build.sh
           stage 14-xcodebuild xcb
           echo "=== XCODEBUILD ERRORS ==="; grep -a -E "error:|ld: (symbol|library|framework|file) .*(not found|cannot|unknown)|No such file|duplicate symbol '_[a-zA-Z]" "$GITHUB_WORKSPACE/logs/14-xcodebuild.log" | grep -a -v "warning:" | cut -c1-400 | sort -u | head -30
           echo "=== UNDEFINED SYMBOLS ==="; grep -a -A40 "^Undefined symbols" "$GITHUB_WORKSPACE/logs/14-xcodebuild.log" | grep -a -E '^  "|referenced from' | cut -c1-300 | head -60
