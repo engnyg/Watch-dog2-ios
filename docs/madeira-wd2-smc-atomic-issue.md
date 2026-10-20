@@ -1,4 +1,4 @@
-# Draft issue for Madeira: Watch Dogs 2 livelocks on an atomic RMW into a tracked code page
+# Draft issue for Madeira: Watch Dogs 2 spends minutes in an SMC fault loop on an interlocked op inside a tracked code page
 
 Status: DRAFT, not posted. Everything below is read from device logs and from the FEX source at
 `willfaust/FEX` branch `ios-port-2607` (commit f59cab9). Root cause is a hypothesis; I have no device-side
@@ -55,31 +55,36 @@ ml1002: [smc-write] guest callers: all retRIP=0
 - So the guest does an interlocked read-modify-write on a variable that lives in the same 16 KB page as code in
   the image section (a protector-style layout). The page is write-protected for SMC tracking.
 
-## Why it never completes (reading the source)
+## What the loop is (revised after reading the 5-minute log more closely)
 
-`Source/Windows/ARM64EC/Module.cpp`, `ResetToConsistentStateImpl`:
+My first reading was "the atomic never lands". The log does not support that: over 248,110 events there is NOT
+ONE `Handled self-modifying code` line (the non-inline `else` branch, sampled 1 in 1000, would print ~248 of
+them), and every event is exactly one fault followed by one `Handled inline self-modifying code`. So the
+single-stepped `LDADDAL` does complete. The better reading is a performance cliff:
 
-1. `InvalidationTracker->HandleRWXAccessViolation` accepts the fault. Because the fault page is in the current
-   block, it takes the "inline SMC" branch: it sets `X11 = 1` (single-step) and re-enters at the guest RIP.
-2. The single-stepped instruction is the same `LDADDAL`, on the same read-only host page. It faults again.
-3. On the `FEX_IOS_HOST` `else` branch (ml657) the page is never made writable. `IosSmcStoreFastPath` only
-   recognises STR/STUR forms; `HandleUnalignedAccess` -> `HandleAtomicMemOp` does emulate LDADD, but it writes
-   through `IosAtomicWritableAlias()` (`FEXCore/Source/Utils/ArchHelpers/Arm64.cpp:384`), which only resolves
-   (a) the fixed JIT pool and (b) anonymous aliases published for the Mono bridge (`IosMonoResolveRW`). For this
-   page, which is neither, it returns the address unchanged ("neither the pool nor a live anonymous alias --
-   leave it alone"), so the emulated atomic hits the same read-only view and faults again.
+1. The guest runs a tight loop whose two sites (`..7C72`, `..7D1C`) do an interlocked op on a variable
+   (`..7C80`) sitting in the same FEX page as the loop's own code.
+2. `InvalidationTracker::HandleRWXAccessViolation` (Source/Windows/Common/InvalidationTracker.cpp:512)
+   invalidates the WHOLE 4 KB page of compiled blocks and unprotects the page through `NtProtectVirtualMemory`.
+3. The inline-SMC branch in `ResetToConsistentStateImpl` (Module.cpp ~1336) re-enters in single-step mode, the
+   atomic lands, and execution continues. The next entry into the loop recompiles the blocks (the faulting host
+   PC in the log creeps forward by ~0x258 per iteration = fresh code every time), which re-arms the trap.
+4. Result: one Mach exception + one page invalidation + one recompile + two protection changes per loop
+   iteration, ~1,100 iterations per second, against a loop that on a PC runs millions of times per second.
 
-The comment at ml657 already names this case: "An ALIGNED store trapped by SMC would still loop -- not observed,
-and it would need a different fix". This looks like the first observation, with an atomic instead of a store.
+If that is right it is not an unhandled atomic but "data word inside a tracked code page". Directions:
 
-## Possible fix directions (untested)
+- Invalidate only the written bytes (`[FaultAddress, FaultAddress+16)`) instead of the whole page in
+  `HandleRWXAccessViolation`. A block that stops before the data word would survive, so the loop would stop
+  recompiling. The trap must then be re-armed after the single step, otherwise later real SMC on that page is
+  missed.
+- Or, for a game that does not need it, run with `FEX_SMCCHECKS=none` (`DisableSMCDetection`, which
+  `ProtectRWXIntervalsInternal` honours by never trapping). Untested on this game; I do not know whether
+  Disrupt_64's startup depends on SMC detection.
 
-- Give `IosAtomicWritableAlias` a third source for image-section pages: build a RW alias of the faulting page
-  (`mach_vm_remap`, the region reports `max=3`) and return it, caching per page; or
-- have the SMC else-branch make the tracked page host-writable for the duration of the atomic and then
-  re-protect it, keeping the invalidation of blocks on that page.
-
-I have not tried either. I can test a build on device if someone points at the intended place.
+Still unknown: whether the loop would eventually finish at this rate, and what it is waiting for. The
+earlier "atomic cannot be written through IosAtomicWritableAlias" observation (Arm64.cpp:384) is real for
+pages with no alias, but it is not what this log shows.
 
 ## Not the cause
 
