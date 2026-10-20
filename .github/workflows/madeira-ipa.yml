@@ -266,11 +266,25 @@ jobs:
           # Madeira Dock: without app/Madeira/arm64ec-windows/dockhost.exe (a gitignored build output) the app hides ALL Steam
           # features (MadeiraDock.enabled -> SteamOwnedLibrary.enabled). Built with the llvm-mingw from stage 03.
           stage 13h-madeira-dock bash build/madeira-dock/build.sh
+          # The repo TRACKS the author's own xtajit64.dll (the x86->ARM64EC translator every 64-bit game runs on) and the four
+          # GnuTLS archives, but stages 07 and 07c rebuilt and overwrote them. Our xtajit64.dll differs from the tracked one in
+          # ~2.5 MB of code, so put the author's device-tested copies back before the app is built.
+          restore_tracked() {
+            echo "--- modified tracked files before restore:"; git status --short | grep -v '^??' | head -40
+            git checkout -- app/Madeira/libgmp.a app/Madeira/libnettle.a app/Madeira/libhogweed.a app/Madeira/libgnutls.a \
+                            app/Madeira/arm64ec-windows/xtajit64.dll &&
+            echo "--- after restore:" && git status --short | grep -v '^??' | head -40
+            shasum -a 256 app/Madeira/arm64ec-windows/xtajit64.dll app/Madeira/libgnutls.a
+          }
+          stage 13i-restore-tracked restore_tracked
           stage 14-xcodebuild xcb
           echo "=== XCODEBUILD ERRORS ==="; grep -a -E "error:|ld: (symbol|library|framework|file) .*(not found|cannot|unknown)|No such file|duplicate symbol '_[a-zA-Z]" "$GITHUB_WORKSPACE/logs/14-xcodebuild.log" | grep -a -v "warning:" | cut -c1-400 | sort -u | head -30
           echo "=== UNDEFINED SYMBOLS ==="; grep -a -A40 "^Undefined symbols" "$GITHUB_WORKSPACE/logs/14-xcodebuild.log" | grep -a -E '^  "|referenced from' | cut -c1-300 | head -60
           echo "=== XCODEBUILD FINAL ==="; grep -a -E "BUILD (SUCCEEDED|FAILED)|The following build commands failed|^\s+(Ld|CompileSwift|SwiftCompile|PhaseScriptExecution|ProcessProductPackaging|CodeSign|Validate)" "$GITHUB_WORKSPACE/logs/14-xcodebuild.log" | tail -12 | cut -c1-300
           echo "=== SUMMARY ==="; cat "$SUMMARY"
+          for n in 13i-restore-tracked; do
+            echo "=== TAIL $n ==="; tail -n 25 "$GITHUB_WORKSPACE/logs/$n.log" | cut -c1-300
+          done
           for n in 13c2-dxmt-air-headers; do
             echo "=== TAIL $n ==="; tail -n 15 "$GITHUB_WORKSPACE/logs/$n.log" | cut -c1-300
           done
