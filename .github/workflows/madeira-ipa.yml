@@ -277,11 +277,20 @@ jobs:
             shasum -a 256 app/Madeira/arm64ec-windows/xtajit64.dll app/Madeira/libgnutls.a
           }
           # 32-bit (WoW64) farm: WD2 starts the 32-bit UbisoftGameLauncher.exe, which needs app/Madeira/i386-windows (tracked empty).
-          # SKIP_DXMT: the 32-bit launcher needs no D3D; the i386 DXMT build needs meson + the 32-bit winemetal table.
+          # The i386 DXMT build needs meson + the 32-bit winemetal table; falls back to Wine-only if it fails.
           wine_i386() {
             export PATH="$(brew --prefix bison)/bin:$PATH"
-            SKIP_DXMT=1 JOBS=3 bash build/wine-i386/build.sh
+            # Device log (run 15): the 32-bit launcher now runs and spawns upc.exe, which dies on "import_dll d3d9.dll not found".
+            # So build DXMT's i386 d3d9/d3d11/dxgi too; if that part fails keep the Wine-only farm (Wine modules are up to date, rerun is quick).
+            JOBS=3 bash build/wine-i386/build.sh
             rc=$?
+            if [ $rc -ne 0 ]; then
+              echo "--- DXMT i386 build failed (rc=$rc); retrying Wine-only"
+              ls -l dxmt/build-osx.txt dxmt/build-pe-i386 2>&1 | head
+              tail -n 60 dxmt/build-pe-i386/meson-logs/meson-log.txt 2>/dev/null | cut -c1-300
+              SKIP_DXMT=1 JOBS=3 bash build/wine-i386/build.sh
+              rc=$?
+            fi
             echo "--- build.sh rc=$rc"; tail -n 40 wine/build-i386/madeira-i386-build.log 2>/dev/null | cut -c1-300
             ls app/Madeira/i386-windows | wc -l
             return $rc
