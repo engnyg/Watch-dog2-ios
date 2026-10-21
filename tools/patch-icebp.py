@@ -62,6 +62,7 @@ NEW = (
     "                                 (unsigned long long)ctx.Pc );\n"
     "                        rec.ExceptionCode = EXCEPTION_SINGLE_STEP;\n"
     "                        ctx.Pc++;\n"
+    "                        rec.ExceptionAddress = (void *)(uintptr_t)ctx.Pc; /* trap-type: ExceptionAddress = EIP+1 */\n"
     "                    }\n"
     "                }\n"
     "#endif\n"
