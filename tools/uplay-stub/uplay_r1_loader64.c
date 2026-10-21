@@ -319,3 +319,131 @@ __declspec(dllexport) BOOL UPLAY_Fingerprint_SyncData(void *data, uint32_t sz)
 {
     (void)data; (void)sz; return TRUE;
 }
+
+/* ─────────────────────────────────────────────────────────────────────
+ * Event pump / async ops  (Disrupt_64.dll calls these by name)
+ * ──────────────────────────────────────────────────────────────────── */
+
+__declspec(dllexport) uint32_t UPLAY_GetNextEvent(void *out) { (void)out; return 0; }
+__declspec(dllexport) uint32_t UPLAY_GetLastError(void)      { return 0; }
+__declspec(dllexport) BOOL UPLAY_HasOverlappedOperationCompleted(void *op)
+{
+    (void)op; return TRUE;
+}
+__declspec(dllexport) BOOL UPLAY_GetOverlappedOperationResult(void *op, uint32_t *result)
+{
+    (void)op; if (result) *result = 0; return TRUE;
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+ * USER_ family – ALL_CAPS variant (Disrupt_64.dll uses GetProcAddress
+ * with these exact names; case matters on Windows exports)
+ * ──────────────────────────────────────────────────────────────────── */
+
+__declspec(dllexport) BOOL UPLAY_USER_IsOwned(uint32_t game_id)       { (void)game_id; return TRUE; }
+__declspec(dllexport) BOOL UPLAY_USER_IsConnected(void)               { return FALSE; }
+__declspec(dllexport) BOOL UPLAY_USER_IsInOfflineMode(void)           { return TRUE; }
+__declspec(dllexport) const char* UPLAY_USER_GetNameUtf8(void)        { return FAKE_USER_NAME; }
+__declspec(dllexport) const char* UPLAY_USER_GetAccountIdUtf8(void)   { return FAKE_USER_ID_HEX; }
+__declspec(dllexport) const char* UPLAY_USER_GetTicketUtf8(void)      { return ""; }
+__declspec(dllexport) BOOL UPLAY_USER_SetGameSession(void *session)   { (void)session; return TRUE; }
+__declspec(dllexport) BOOL UPLAY_USER_ClearGameSession(void)          { return TRUE; }
+
+/* ─────────────────────────────────────────────────────────────────────
+ * OVERLAY_ family – ALL_CAPS variant
+ * ──────────────────────────────────────────────────────────────────── */
+
+__declspec(dllexport) BOOL UPLAY_OVERLAY_Show(uint32_t page)         { (void)page; return FALSE; }
+__declspec(dllexport) BOOL UPLAY_OVERLAY_ShowNotification(void *n)   { (void)n; return FALSE; }
+__declspec(dllexport) BOOL UPLAY_OVERLAY_ShowShopUrl(const char *u)  { (void)u; return FALSE; }
+
+/* ─────────────────────────────────────────────────────────────────────
+ * FRIENDS_ family – ALL_CAPS variant
+ * ──────────────────────────────────────────────────────────────────── */
+
+__declspec(dllexport) BOOL UPLAY_FRIENDS_Init(void)                              { return TRUE; }
+__declspec(dllexport) BOOL UPLAY_FRIENDS_GetFriendList(uint32_t *cnt, void **out)
+{
+    if (cnt) *cnt = 0; if (out) *out = NULL; return TRUE;
+}
+__declspec(dllexport) BOOL UPLAY_FRIENDS_InviteToGame(uint32_t id)               { (void)id; return TRUE; }
+__declspec(dllexport) BOOL UPLAY_FRIENDS_ShowFriendSelectionUI(void *cb)         { (void)cb; return FALSE; }
+
+/* ─────────────────────────────────────────────────────────────────────
+ * PARTY_ family
+ * ──────────────────────────────────────────────────────────────────── */
+
+__declspec(dllexport) BOOL UPLAY_PARTY_Init(void)                                    { return TRUE; }
+__declspec(dllexport) BOOL UPLAY_PARTY_IsInParty(void)                               { return FALSE; }
+__declspec(dllexport) BOOL UPLAY_PARTY_IsPartyLeader(void)                           { return FALSE; }
+__declspec(dllexport) BOOL UPLAY_PARTY_GetFullMemberList(uint32_t *cnt, void **out)
+{
+    if (cnt) *cnt = 0; if (out) *out = NULL; return TRUE;
+}
+__declspec(dllexport) BOOL UPLAY_PARTY_InvitePartyToGame(void *cb)                   { (void)cb; return FALSE; }
+__declspec(dllexport) BOOL UPLAY_PARTY_RespondToGameInvite(uint32_t r, void *inv)    { (void)r; (void)inv; return TRUE; }
+__declspec(dllexport) BOOL UPLAY_PARTY_SetUserData(void *data, uint32_t sz)          { (void)data; (void)sz; return TRUE; }
+__declspec(dllexport) BOOL UPLAY_PARTY_ShowGameInviteOverlayUI(void *cb)             { (void)cb; return FALSE; }
+
+/* ─────────────────────────────────────────────────────────────────────
+ * SAVE_ family (cloud save; distinct from Storage)
+ * ──────────────────────────────────────────────────────────────────── */
+
+__declspec(dllexport) BOOL UPLAY_SAVE_GetSavegames(uint32_t *cnt, void **out)
+{
+    if (cnt) *cnt = 0; if (out) *out = NULL; return TRUE;
+}
+__declspec(dllexport) BOOL UPLAY_SAVE_ReleaseGameList(void *list)     { (void)list; return TRUE; }
+__declspec(dllexport) BOOL UPLAY_SAVE_Open(uint32_t slot, BOOL write) { (void)slot; (void)write; return TRUE; }
+__declspec(dllexport) BOOL UPLAY_SAVE_Close(uint32_t slot)            { (void)slot; return TRUE; }
+__declspec(dllexport) BOOL UPLAY_SAVE_Read(uint32_t slot, void *buf, uint32_t sz, uint32_t *rd)
+{
+    (void)slot; (void)buf; (void)sz; if (rd) *rd = 0; return FALSE;
+}
+__declspec(dllexport) BOOL UPLAY_SAVE_Write(uint32_t slot, const void *buf, uint32_t sz)
+{
+    (void)slot; (void)buf; (void)sz; return TRUE;
+}
+__declspec(dllexport) BOOL UPLAY_SAVE_Remove(uint32_t slot)           { (void)slot; return TRUE; }
+
+/* ─────────────────────────────────────────────────────────────────────
+ * INSTALLER_ family
+ * ──────────────────────────────────────────────────────────────────── */
+
+__declspec(dllexport) BOOL UPLAY_INSTALLER_Init(void)                              { return TRUE; }
+__declspec(dllexport) BOOL UPLAY_INSTALLER_GetChunks(uint32_t *cnt, void **out)
+{
+    if (cnt) *cnt = 0; if (out) *out = NULL; return TRUE;
+}
+__declspec(dllexport) BOOL UPLAY_INSTALLER_AreChunksInstalled(void *ids, uint32_t cnt)
+{
+    (void)ids; (void)cnt; return TRUE;
+}
+__declspec(dllexport) BOOL UPLAY_INSTALLER_GetChunkIdsFromTag(const char *tag, void **out)
+{
+    (void)tag; if (out) *out = NULL; return TRUE;
+}
+__declspec(dllexport) BOOL UPLAY_INSTALLER_ReleaseChunkIdList(void *list)          { (void)list; return TRUE; }
+__declspec(dllexport) const char* UPLAY_INSTALLER_GetLanguageUtf8(void)            { return "en"; }
+
+/* ─────────────────────────────────────────────────────────────────────
+ * ACH_ family – ALL_CAPS variant (Disrupt calls UPLAY_ACH_EarnAchievement)
+ * ──────────────────────────────────────────────────────────────────── */
+
+__declspec(dllexport) BOOL UPLAY_ACH_EarnAchievement(uint32_t id)    { (void)id; return TRUE; }
+
+/* ─────────────────────────────────────────────────────────────────────
+ * AVATAR_ family
+ * ──────────────────────────────────────────────────────────────────── */
+
+__declspec(dllexport) BOOL UPLAY_AVATAR_Get(uint32_t user_id, void **out)
+{
+    (void)user_id; if (out) *out = NULL; return FALSE;
+}
+__declspec(dllexport) BOOL UPLAY_AVATAR_Release(void *avatar)         { (void)avatar; return TRUE; }
+
+/* ─────────────────────────────────────────────────────────────────────
+ * WIN_ family
+ * ──────────────────────────────────────────────────────────────────── */
+
+__declspec(dllexport) BOOL UPLAY_WIN_RefreshActions(void)             { return TRUE; }
