@@ -63,8 +63,8 @@ jobs:
           stage 02-brew tools
 
           # FEX decodes 32-bit opcode 0x82 (alias of 0x80) wrongly: the log's "Unknown ALU Op: 0x10..0x16" right before upc.exe's
-          # STATUS_ILLEGAL_INSTRUCTION. Patch the dispatcher before FEX is built (build/patch-fex-0x82.py).
-          stage 01b-fex-patch python3 "$GITHUB_WORKSPACE/build/patch-fex-0x82.py" FEX/FEXCore/Source/Interface/Core/OpcodeDispatcher.cpp
+          # STATUS_ILLEGAL_INSTRUCTION. Patch the dispatcher before FEX is built (tools/patch-fex-0x82.py).
+          stage 01b-fex-patch python3 "$GITHUB_WORKSPACE/tools/patch-fex-0x82.py" FEX/FEXCore/Source/Interface/Core/OpcodeDispatcher.cpp
 
           mingw() {
             mkdir -p toolchains && cd toolchains &&
@@ -110,6 +110,8 @@ jobs:
           fex_wow64() {
             R="$PWD"
             export PATH="$R/toolchains/llvm-mingw-20260421-ucrt-macos-universal/bin:$PATH"
+            # never replace the tracked xtajit.dll with an UNPATCHED rebuild
+            [ "$(grep -c "32-bit only alias of 0x80" FEX/FEXCore/Source/Interface/Core/OpcodeDispatcher.cpp)" = 5 ] || { echo "0x82 patch not applied; keeping the tracked xtajit.dll"; return 1; }
             cp app/Madeira/aarch64-windows/xtajit.dll "$R/xtajit.dll.tracked" || return 1
             shasum -a 256 "$R/xtajit.dll.tracked"
             if cmake -S "$R/FEX" -B "$R/FEX/build-wow64" -G Ninja -DCMAKE_BUILD_TYPE=Release \
