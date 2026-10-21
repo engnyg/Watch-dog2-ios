@@ -35,6 +35,29 @@ WatchDogs2.exe
 
 不呼叫 upc.exe、不碰 Steam registry、不建立 IPC pipe。
 
+## Disrupt_64.dll 分析結果
+
+靜態分析 `Disrupt_64.dll`（133MB，高度保護/打包）的結果：
+
+- **Delay import table**：只有 `libScePad.dll` 和 `steam_api64.dll`；uplay 不在其中。
+- **uplay 載入方式**：Disrupt 在執行期透過 `LoadLibraryW("uplay_r1_loader64.dll")` 再 `GetProcAddress` 取得各函式——不使用 delay import。
+- **命名方案**：Disrupt 使用全大寫元件名稱（`UPLAY_USER_*`、`UPLAY_OVERLAY_*`、`UPLAY_FRIENDS_*` 等），**非** 初版 stub 的混合大寫（`UPLAY_User_*`）。Windows named export 區分大小寫，因此原版 stub 的 `UPLAY_User_IsOwned` 無法被 `GetProcAddress("UPLAY_USER_IsOwned")` 找到。
+
+**Disrupt 實際呼叫的函式**（從 .edata 字串表取得）：
+
+| 類別 | 函式 |
+|------|------|
+| 核心 | `UPLAY_Start`, `UPLAY_Update`, `UPLAY_GetNextEvent`, `UPLAY_GetLastError`, `UPLAY_HasOverlappedOperationCompleted`, `UPLAY_GetOverlappedOperationResult` |
+| 用戶 | `UPLAY_USER_IsOwned`, `UPLAY_USER_IsConnected`, `UPLAY_USER_IsInOfflineMode`, `UPLAY_USER_GetNameUtf8`, `UPLAY_USER_GetAccountIdUtf8`, `UPLAY_USER_GetTicketUtf8`, `UPLAY_USER_SetGameSession`, `UPLAY_USER_ClearGameSession` |
+| Overlay | `UPLAY_OVERLAY_Show`, `UPLAY_OVERLAY_ShowNotification`, `UPLAY_OVERLAY_ShowShopUrl` |
+| 好友 | `UPLAY_FRIENDS_Init`, `UPLAY_FRIENDS_GetFriendList`, `UPLAY_FRIENDS_InviteToGame`, `UPLAY_FRIENDS_ShowFriendSelectionUI` |
+| 派對 | `UPLAY_PARTY_*`（8 個函式） |
+| 存檔 | `UPLAY_SAVE_*`（7 個函式） |
+| 安裝 | `UPLAY_INSTALLER_*`（6 個函式） |
+| 其他 | `UPLAY_ACH_EarnAchievement`, `UPLAY_AVATAR_Get/Release`, `UPLAY_WIN_RefreshActions` |
+
+**upc.exe 分析**：17MB PE32，`.text`/`.rdata`/`.data` 皆 rawsz=0（執行期解壓），`.ubx2` 為 16.8MB 打包資料，字串完全加密，無法靜態取得 SteamInfoReceiver 細節。
+
 ## 建置
 
 CI (`madeira-ipa.yml` stage `13h2-uplay-stub`) 在 stage 03 (llvm-mingw) 之後自動建置：
