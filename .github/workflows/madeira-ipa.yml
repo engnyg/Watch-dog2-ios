@@ -294,6 +294,11 @@ jobs:
           # Madeira Dock: without app/Madeira/arm64ec-windows/dockhost.exe (a gitignored build output) the app hides ALL Steam
           # features (MadeiraDock.enabled -> SteamOwnedLibrary.enabled). Built with the llvm-mingw from stage 03.
           stage 13h-madeira-dock bash build/madeira-dock/build.sh
+          # Uplay stub: RunGameEx (Disrupt_64.dll) loads uplay_r1_loader64.dll and waits for upc.exe auth via IPC pipe.
+          # upc.exe exits 0xDEADC0DE under FEX (SteamInfoReceiver fails), so the pipe is never created and the game hangs.
+          # The stub exports all Uplay R1 functions but returns offline-success immediately, bypassing upc.exe entirely.
+          # A copy is placed as uplay_r2_loader64.dll too (some Steam builds use that name).
+          stage 13h2-uplay-stub bash "$GITHUB_WORKSPACE/tools/uplay-stub/build.sh"
           # The repo TRACKS the author's own xtajit64.dll (the x86->ARM64EC translator every 64-bit game runs on) and the four
           # GnuTLS archives, but stages 07 and 07c rebuilt and overwrote them. Our xtajit64.dll differs from the tracked one in
           # ~2.5 MB of code, so put the author's device-tested copies back before the app is built.
