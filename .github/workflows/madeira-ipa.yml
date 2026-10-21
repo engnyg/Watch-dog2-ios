@@ -62,6 +62,10 @@ jobs:
           tools() { brew install cmake ninja meson bison ccache sevenzip llvm cabextract; }
           stage 02-brew tools
 
+          # FEX decodes 32-bit opcode 0x82 (alias of 0x80) wrongly: the log's "Unknown ALU Op: 0x10..0x16" right before upc.exe's
+          # STATUS_ILLEGAL_INSTRUCTION. Patch the dispatcher before FEX is built (build/patch-fex-0x82.py).
+          stage 01b-fex-patch python3 "$GITHUB_WORKSPACE/build/patch-fex-0x82.py" FEX/FEXCore/Source/Interface/Core/OpcodeDispatcher.cpp
+
           mingw() {
             mkdir -p toolchains && cd toolchains &&
             curl -fL -o llvm-mingw.tar.xz https://github.com/mstorsjo/llvm-mingw/releases/download/20260421/llvm-mingw-20260421-ucrt-macos-universal.tar.xz &&
@@ -100,6 +104,28 @@ jobs:
             bash build/fex-arm64ec/build.sh
           }
           stage 07-fex-arm64ec fex_ec
+
+          # FEX WOW64 module (xtajit.dll, the 32-bit CPU backend) rebuilt with the 0x82 fix. Only 32-bit processes use it
+          # (64-bit WD2 runs on xtajit64.dll, restored from the repo later). On failure put the tracked xtajit.dll back.
+          fex_wow64() {
+            R="$PWD"
+            export PATH="$R/toolchains/llvm-mingw-20260421-ucrt-macos-universal/bin:$PATH"
+            cp app/Madeira/aarch64-windows/xtajit.dll "$R/xtajit.dll.tracked" || return 1
+            shasum -a 256 "$R/xtajit.dll.tracked"
+            if cmake -S "$R/FEX" -B "$R/FEX/build-wow64" -G Ninja -DCMAKE_BUILD_TYPE=Release \
+                 -DCMAKE_TOOLCHAIN_FILE="$R/FEX/Data/CMake/toolchain_mingw.cmake" -DMINGW_TRIPLE=aarch64-w64-mingw32 \
+                 -DFEX_IOS_HOST_BUILD=ON -DCMAKE_C_FLAGS=-DFEX_IOS_HOST -DCMAKE_CXX_FLAGS=-DFEX_IOS_HOST -DCMAKE_ASM_FLAGS=-DFEX_IOS_HOST \
+                 -DENABLE_LTO=OFF -DENABLE_ASSERTIONS=OFF -DENABLE_JEMALLOC_GLIBC_ALLOC=OFF -DBUILD_TESTING=OFF -DBUILD_FEXCONFIG=OFF \
+                 -DTUNE_ARCH=generic -DTUNE_CPU=none -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_IGNORE_PREFIX_PATH=/opt/homebrew &&
+               bash build/fex-wow64/build.sh; then
+              file app/Madeira/aarch64-windows/xtajit.dll; shasum -a 256 app/Madeira/aarch64-windows/xtajit.dll
+            else
+              echo "--- wow64fex build failed; restoring the tracked xtajit.dll"
+              cp "$R/xtajit.dll.tracked" app/Madeira/aarch64-windows/xtajit.dll
+              return 1
+            fi
+          }
+          stage 07g-fex-wow64 fex_wow64
 
           # The unix-side scripts include wine/build-macos/include/config.h, a configured
           # native Wine tree that is not documented anywhere; try a plain configure.
@@ -305,6 +331,9 @@ jobs:
           echo "=== UNDEFINED SYMBOLS ==="; grep -a -A40 "^Undefined symbols" "$GITHUB_WORKSPACE/logs/14-xcodebuild.log" | grep -a -E '^  "|referenced from' | cut -c1-300 | head -60
           echo "=== XCODEBUILD FINAL ==="; grep -a -E "BUILD (SUCCEEDED|FAILED)|The following build commands failed|^\s+(Ld|CompileSwift|SwiftCompile|PhaseScriptExecution|ProcessProductPackaging|CodeSign|Validate)" "$GITHUB_WORKSPACE/logs/14-xcodebuild.log" | tail -12 | cut -c1-300
           echo "=== SUMMARY ==="; cat "$SUMMARY"
+          for n in 01b-fex-patch 07g-fex-wow64; do
+            echo "=== TAIL $n ==="; tail -n 25 "$GITHUB_WORKSPACE/logs/$n.log" | cut -c1-300
+          done
           for n in 13i0-wine-i386; do
             echo "=== TAIL $n ==="; tail -n 40 "$GITHUB_WORKSPACE/logs/$n.log" | cut -c1-300
             echo "=== ERRORS $n ==="; grep -a -E "^FAIL|error:|missing import|== .* modules|== [0-9]+ files" "$GITHUB_WORKSPACE/logs/$n.log" | head -40
