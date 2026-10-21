@@ -74,6 +74,14 @@ jobs:
           # advance ++Rip and set ExceptionAddress = Rip.
           stage 01c-fex-exception-patch python3 "$GITHUB_WORKSPACE/tools/patch-fex-exception.py" FEX/Source/Windows/Common/Exception.h
 
+          # wow64_NtRaiseHardError in Wine's WoW64 layer is a FIXME stub: it logs and returns
+          # STATUS_NOT_IMPLEMENTED without setting *Response. upc.exe calls it after the ICEBP
+          # self-check passes (status=0x50000018, ValidResponseOptions=OptionAbortRetryIgnore=0)
+          # and checks *Response; stub leaves it 0 (ReturnToCaller) → NtTerminateProcess(0xDEADC0DE).
+          # Fix: translate the 32-bit argument frame (UNICODE_STRING32→UNICODE_STRING) and forward
+          # to the 64-bit NtRaiseHardError; fall back to ResponseIgnore(4) in headless iOS mode.
+          stage 01d-wine-wow64-patch python3 "$GITHUB_WORKSPACE/tools/patch-wine-wow64.py" wine/dlls/wow64/system.c
+
           mingw() {
             mkdir -p toolchains && cd toolchains &&
             curl -fL -o llvm-mingw.tar.xz https://github.com/mstorsjo/llvm-mingw/releases/download/20260421/llvm-mingw-20260421-ucrt-macos-universal.tar.xz &&
@@ -349,7 +357,7 @@ jobs:
           echo "=== UNDEFINED SYMBOLS ==="; grep -a -A40 "^Undefined symbols" "$GITHUB_WORKSPACE/logs/14-xcodebuild.log" | grep -a -E '^  "|referenced from' | cut -c1-300 | head -60
           echo "=== XCODEBUILD FINAL ==="; grep -a -E "BUILD (SUCCEEDED|FAILED)|The following build commands failed|^\s+(Ld|CompileSwift|SwiftCompile|PhaseScriptExecution|ProcessProductPackaging|CodeSign|Validate)" "$GITHUB_WORKSPACE/logs/14-xcodebuild.log" | tail -12 | cut -c1-300
           echo "=== SUMMARY ==="; cat "$SUMMARY"
-          for n in 01b-fex-patch 01c-fex-exception-patch 07g-fex-wow64 07h-icebp-patch; do
+          for n in 01b-fex-patch 01c-fex-exception-patch 01d-wine-wow64-patch 07g-fex-wow64 07h-icebp-patch; do
             echo "=== TAIL $n ==="; tail -n 25 "$GITHUB_WORKSPACE/logs/$n.log" | cut -c1-300
           done
           for n in 13i0-wine-i386; do
