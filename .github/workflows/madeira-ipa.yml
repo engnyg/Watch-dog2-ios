@@ -173,6 +173,15 @@ jobs:
             grep -rn "ri_page_wait_time_mach" build/ntdll-unix || echo "patched"
           }
           stage 07f-sdk-compat sdkfix
+
+          # INT1/ICEBP (0xF1): FEX emits BRK #0 for this undecoded opcode; trap_handler's default
+          # case produces EXCEPTION_ILLEGAL_INSTRUCTION with ExceptionAddress pointing AT the 0xF1 byte.
+          # Real hardware delivers a trap-type #DB: ExceptionAddress = byte AFTER 0xF1. The one-byte
+          # discrepancy causes the Ubisoft .ubx packer self-integrity check in upc.exe to fail
+          # (ExceptionAddress != expected_next_insn) and exit 0xDEADC0DE.
+          # Fix: detect 0xF1 at ctx.Pc in the default case, promote to EXCEPTION_SINGLE_STEP, advance Pc+1.
+          stage 07h-icebp-patch python3 "$GITHUB_WORKSPACE/tools/patch-icebp.py" build/ntdll-unix/signal_arm64_ios.c
+
           stage 08-ntdll-unix bash build/ntdll-unix/build.sh
           stage 08b-ntdll-errors errs build/ntdll-unix/obj
           # The wineserver script patches a prebuilt base archive that is not in the
