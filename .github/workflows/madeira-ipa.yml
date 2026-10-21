@@ -66,6 +66,14 @@ jobs:
           # STATUS_ILLEGAL_INSTRUCTION. Patch the dispatcher before FEX is built (tools/patch-fex-0x82.py).
           stage 01b-fex-patch python3 "$GITHUB_WORKSPACE/tools/patch-fex-0x82.py" FEX/FEXCore/Source/Interface/Core/OpcodeDispatcher.cpp
 
+          # ICEBP (INT1/0xF1): FEX's HandleGuestException X86_TRAPNO_DB case sets ExceptionAddress = Rip
+          # (start of instruction) without advancing, but real x86 delivers a trap-type #DB with
+          # ExceptionAddress = EIP+1 (byte after the 0xF1 opcode). The Ubisoft .ubx packer in upc.exe
+          # checks ExceptionAddress exactly; a 1-byte mismatch causes exit 0xDEADC0DE.
+          # Fix: when err_code == 0 (ICEBP; INTOp sets ErrorRegister=0, unlike TF which has DR6.BS=0x4000),
+          # advance ++Rip and set ExceptionAddress = Rip.
+          stage 01c-fex-exception-patch python3 "$GITHUB_WORKSPACE/tools/patch-fex-exception.py" FEX/Source/Windows/Common/Exception.h
+
           mingw() {
             mkdir -p toolchains && cd toolchains &&
             curl -fL -o llvm-mingw.tar.xz https://github.com/mstorsjo/llvm-mingw/releases/download/20260421/llvm-mingw-20260421-ucrt-macos-universal.tar.xz &&
@@ -112,6 +120,7 @@ jobs:
             export PATH="$R/toolchains/llvm-mingw-20260421-ucrt-macos-universal/bin:$PATH"
             # never replace the tracked xtajit.dll with an UNPATCHED rebuild
             [ "$(grep -c "32-bit only alias of 0x80" FEX/FEXCore/Source/Interface/Core/OpcodeDispatcher.cpp)" = 5 ] || { echo "0x82 patch not applied; keeping the tracked xtajit.dll"; return 1; }
+            grep -q "ml-icebp-fex" FEX/Source/Windows/Common/Exception.h || { echo "exception patch not applied; keeping the tracked xtajit.dll"; return 1; }
             cp app/Madeira/aarch64-windows/xtajit.dll "$R/xtajit.dll.tracked" || return 1
             shasum -a 256 "$R/xtajit.dll.tracked"
             if cmake -S "$R/FEX" -B "$R/FEX/build-wow64" -G Ninja -DCMAKE_BUILD_TYPE=Release \
@@ -174,12 +183,10 @@ jobs:
           }
           stage 07f-sdk-compat sdkfix
 
-          # INT1/ICEBP (0xF1): FEX emits BRK #0 for this undecoded opcode; trap_handler's default
-          # case produces EXCEPTION_ILLEGAL_INSTRUCTION with ExceptionAddress pointing AT the 0xF1 byte.
-          # Real hardware delivers a trap-type #DB: ExceptionAddress = byte AFTER 0xF1. The one-byte
-          # discrepancy causes the Ubisoft .ubx packer self-integrity check in upc.exe to fail
-          # (ExceptionAddress != expected_next_insn) and exit 0xDEADC0DE.
-          # Fix: detect 0xF1 at ctx.Pc in the default case, promote to EXCEPTION_SINGLE_STEP, advance Pc+1.
+          # INT1/ICEBP (0xF1) signal_arm64_ios.c fallback: for any BRK that reaches the native trap_handler
+          # default case (i.e. not handled by FEX WoW64 bridge), detect 0xF1 at ctx.Pc and promote to
+          # EXCEPTION_SINGLE_STEP with Pc+1. The primary ICEBP fix for the 32-bit WoW64 path (upc.exe) is
+          # in HandleGuestException (01c-fex-exception-patch); this patch covers non-WoW64 edge cases.
           stage 07h-icebp-patch python3 "$GITHUB_WORKSPACE/tools/patch-icebp.py" build/ntdll-unix/signal_arm64_ios.c
 
           stage 08-ntdll-unix bash build/ntdll-unix/build.sh
@@ -342,7 +349,7 @@ jobs:
           echo "=== UNDEFINED SYMBOLS ==="; grep -a -A40 "^Undefined symbols" "$GITHUB_WORKSPACE/logs/14-xcodebuild.log" | grep -a -E '^  "|referenced from' | cut -c1-300 | head -60
           echo "=== XCODEBUILD FINAL ==="; grep -a -E "BUILD (SUCCEEDED|FAILED)|The following build commands failed|^\s+(Ld|CompileSwift|SwiftCompile|PhaseScriptExecution|ProcessProductPackaging|CodeSign|Validate)" "$GITHUB_WORKSPACE/logs/14-xcodebuild.log" | tail -12 | cut -c1-300
           echo "=== SUMMARY ==="; cat "$SUMMARY"
-          for n in 01b-fex-patch 07g-fex-wow64 07h-icebp-patch; do
+          for n in 01b-fex-patch 01c-fex-exception-patch 07g-fex-wow64 07h-icebp-patch; do
             echo "=== TAIL $n ==="; tail -n 25 "$GITHUB_WORKSPACE/logs/$n.log" | cut -c1-300
           done
           for n in 13i0-wine-i386; do
