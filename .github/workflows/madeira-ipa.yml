@@ -354,6 +354,19 @@ jobs:
           }
           stage 13i0-wine-i386 wine_i386
           stage 13i-restore-tracked restore_tracked
+          # wow64.dll is a tracked pre-compiled aarch64 PE DLL in the Madeira repo.  Patching
+          # wine/dlls/wow64/system.c (stage 01d) has no effect on the binary.  Binary-patch the
+          # export wow64_NtRaiseHardError directly: parse the PE export table, find the function
+          # offset, write 6 ARM64 instructions that set *Response=ResponseIgnore(4) and return
+          # STATUS_SUCCESS.  On failure the tracked binary is left intact (the old stub).
+          wow64_bin_patch() {
+            DLL="app/Madeira/aarch64-windows/wow64.dll"
+            [ -f "$DLL" ] || { echo "wow64.dll not found at $DLL; skipping"; return 0; }
+            shasum -a 256 "$DLL"
+            python3 "$GITHUB_WORKSPACE/tools/patch-wow64-binary.py" "$DLL" || return 1
+            shasum -a 256 "$DLL"
+          }
+          stage 13i1-wow64-bin-patch wow64_bin_patch
           # Wine Mono (.NET Framework runtime): fetch.sh downloads the pinned build and checks its hashes; the Xcode phase
           # "Bundle Wine Mono" then copies it into Madeira.app/wine-mono. Without this the app is built without Mono.
           stage 13j-wine-mono bash build/wine-mono/fetch.sh
@@ -362,7 +375,7 @@ jobs:
           echo "=== UNDEFINED SYMBOLS ==="; grep -a -A40 "^Undefined symbols" "$GITHUB_WORKSPACE/logs/14-xcodebuild.log" | grep -a -E '^  "|referenced from' | cut -c1-300 | head -60
           echo "=== XCODEBUILD FINAL ==="; grep -a -E "BUILD (SUCCEEDED|FAILED)|The following build commands failed|^\s+(Ld|CompileSwift|SwiftCompile|PhaseScriptExecution|ProcessProductPackaging|CodeSign|Validate)" "$GITHUB_WORKSPACE/logs/14-xcodebuild.log" | tail -12 | cut -c1-300
           echo "=== SUMMARY ==="; cat "$SUMMARY"
-          for n in 01b-fex-patch 01c-fex-exception-patch 01d-wine-wow64-patch 07g-fex-wow64 07h-icebp-patch; do
+          for n in 01b-fex-patch 01c-fex-exception-patch 01d-wine-wow64-patch 07g-fex-wow64 07h-icebp-patch 13i1-wow64-bin-patch; do
             echo "=== TAIL $n ==="; tail -n 25 "$GITHUB_WORKSPACE/logs/$n.log" | cut -c1-300
           done
           for n in 13i0-wine-i386; do
