@@ -54,6 +54,14 @@ func_end = pos  # one past the closing '}'
 OLD_FUNC = src[func_start:func_end]
 
 NEW_FUNC = """\
+/* ml-wow64-raiseharderror: 32-bit guest address -> host pointer, via the same get_ptr() the thunks use
+   (it adds the WoW64 window base; plain ULongToPtr does not and faults) */
+static void *ml_ptr32( ULONG v )
+{
+    UINT tmp = v, *p = &tmp;
+    return get_ptr( &p );
+}
+
 /**********************************************************************
  *           wow64_NtRaiseHardError
  */
@@ -76,10 +84,11 @@ NTSTATUS WINAPI wow64_NtRaiseHardError( UINT *args )
     {
         if (params32 && ((params_mask >> i) & 1))
         {
-            const UNICODE_STRING32 *s = ULongToPtr( params32[i] );
+            const UNICODE_STRING32 *s = ml_ptr32( params32[i] );
+            if (!s) { params64[i] = NULL; continue; }
             strs64[i].Length        = s->Length;
             strs64[i].MaximumLength = s->MaximumLength;
-            strs64[i].Buffer        = ULongToPtr( s->Buffer );
+            strs64[i].Buffer        = ml_ptr32( s->Buffer );
             params64[i] = &strs64[i];
         }
         else params64[i] = params32 ? (PVOID)(ULONG_PTR)params32[i] : NULL;
@@ -89,6 +98,7 @@ NTSTATUS WINAPI wow64_NtRaiseHardError( UINT *args )
        as ResponseIgnore (4) so OptionAbortRetryIgnore callers don't take Abort path. */
     if (!response) response = (HARDERROR_RESPONSE)4;
     if (response32) *response32 = response;
+    if (ret == STATUS_NOT_IMPLEMENTED) ret = STATUS_SUCCESS;  /* a response was synthesized above */
     return ret;
 }"""
 
