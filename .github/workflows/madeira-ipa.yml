@@ -354,19 +354,31 @@ jobs:
           }
           stage 13i0-wine-i386 wine_i386
           stage 13i-restore-tracked restore_tracked
-          # wow64.dll is a tracked pre-compiled aarch64 PE DLL in the Madeira repo.  Patching
-          # wine/dlls/wow64/system.c (stage 01d) has no effect on the binary.  Binary-patch the
-          # export wow64_NtRaiseHardError directly: parse the PE export table, find the function
-          # offset, write 6 ARM64 instructions that set *Response=ResponseIgnore(4) and return
-          # STATUS_SUCCESS.  On failure the tracked binary is left intact (the old stub).
-          wow64_bin_patch() {
-            DLL="app/Madeira/aarch64-windows/wow64.dll"
-            [ -f "$DLL" ] || { echo "wow64.dll not found at $DLL; skipping"; return 0; }
-            shasum -a 256 "$DLL"
-            python3 "$GITHUB_WORKSPACE/tools/patch-wow64-binary.py" "$DLL" || return 1
-            shasum -a 256 "$DLL"
+          # wow64.dll is a TRACKED pre-compiled aarch64 PE DLL, so the source patch of stage 01d never reaches the IPA
+          # (device log still showed "wow64_NtRaiseHardError ...: stub"). Rebuild it from the patched Wine tree
+          # (wine/build-macos, configured in 07b with llvm-mingw on PATH) and swap it in only if the result is an ARM64 PE
+          # without the stub string; otherwise the tracked file is put back. wow64_NtRaiseHardError is not a PE export
+          # (it lives in the syscall table), so a by-name binary patch is not possible.
+          wow64_rebuild() {
+            R="$PWD"; DLL="app/Madeira/aarch64-windows/wow64.dll"
+            export PATH="$(brew --prefix bison)/bin:$R/toolchains/llvm-mingw-20260421-ucrt-macos-universal/bin:$PATH"
+            [ -f "$DLL" ] || { echo "no tracked $DLL"; return 1; }
+            grep -q "ml-wow64-raiseharderror" wine/dlls/wow64/system.c || { echo "wow64 source patch not applied; keeping tracked"; return 1; }
+            echo "--- tracked wow64.dll"; shasum -a 256 "$DLL"; python3 "$GITHUB_WORKSPACE/tools/wow64-diag.py" "$DLL"
+            cp "$DLL" "$R/wow64.dll.tracked" || return 1
+            ( cd wine/build-macos &&
+              ( make -j3 dlls/wow64/aarch64-windows/wow64.dll || make -j3 dlls/wow64/all ) ) ||
+              { echo "--- wow64 make failed; candidate targets:"; grep -o "dlls/wow64/[A-Za-z0-9_-]*/\?wow64[A-Za-z0-9._-]*" wine/build-macos/Makefile | sort -u | head; return 1; }
+            NEW=$(find wine/build-macos/dlls/wow64 -name wow64.dll -newer "$R/wow64.dll.tracked" | head -1)
+            [ -n "$NEW" ] || { echo "--- no freshly built wow64.dll found:"; find wine/build-macos/dlls/wow64 -name '*.dll' -o -name '*.so' | head; return 1; }
+            echo "--- rebuilt: $NEW"; file "$NEW"
+            if python3 "$GITHUB_WORKSPACE/tools/wow64-diag.py" "$NEW" --expect-patched; then
+              cp "$NEW" "$DLL" && echo "--- installed rebuilt wow64.dll" && shasum -a 256 "$DLL"
+            else
+              echo "--- validation failed; keeping the tracked wow64.dll"; return 1
+            fi
           }
-          stage 13i1-wow64-bin-patch wow64_bin_patch
+          stage 13i1-wow64-rebuild wow64_rebuild
           # Wine Mono (.NET Framework runtime): fetch.sh downloads the pinned build and checks its hashes; the Xcode phase
           # "Bundle Wine Mono" then copies it into Madeira.app/wine-mono. Without this the app is built without Mono.
           stage 13j-wine-mono bash build/wine-mono/fetch.sh
@@ -375,8 +387,12 @@ jobs:
           echo "=== UNDEFINED SYMBOLS ==="; grep -a -A40 "^Undefined symbols" "$GITHUB_WORKSPACE/logs/14-xcodebuild.log" | grep -a -E '^  "|referenced from' | cut -c1-300 | head -60
           echo "=== XCODEBUILD FINAL ==="; grep -a -E "BUILD (SUCCEEDED|FAILED)|The following build commands failed|^\s+(Ld|CompileSwift|SwiftCompile|PhaseScriptExecution|ProcessProductPackaging|CodeSign|Validate)" "$GITHUB_WORKSPACE/logs/14-xcodebuild.log" | tail -12 | cut -c1-300
           echo "=== SUMMARY ==="; cat "$SUMMARY"
-          for n in 01b-fex-patch 01c-fex-exception-patch 01d-wine-wow64-patch 07g-fex-wow64 07h-icebp-patch 13i1-wow64-bin-patch; do
+          for n in 01b-fex-patch 01c-fex-exception-patch 01d-wine-wow64-patch 07g-fex-wow64 07h-icebp-patch; do
             echo "=== TAIL $n ==="; tail -n 25 "$GITHUB_WORKSPACE/logs/$n.log" | cut -c1-300
+          done
+          for n in 13i1-wow64-rebuild; do
+            echo "=== TAIL $n ==="; tail -n 80 "$GITHUB_WORKSPACE/logs/$n.log" | cut -c1-300
+            echo "=== ERRORS $n ==="; grep -a -E "error:|Error |\*\*\*|No rule" "$GITHUB_WORKSPACE/logs/$n.log" | head -30 | cut -c1-300
           done
           for n in 13i0-wine-i386; do
             echo "=== TAIL $n ==="; tail -n 40 "$GITHUB_WORKSPACE/logs/$n.log" | cut -c1-300
