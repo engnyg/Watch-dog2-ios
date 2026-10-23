@@ -62,6 +62,17 @@ static void *ml_ptr32( ULONG v )
     return get_ptr( &p );
 }
 
+/* wow64.dll links ntdll only, so debugstr_w* (needs kernel32) is unavailable: print ASCII by hand */
+static void ml_dump_us( ULONG i, const UNICODE_STRING *us )
+{
+    char buf[257];
+    ULONG n, len = us->Buffer ? us->Length / sizeof(WCHAR) : 0;
+    if (len > 256) len = 256;
+    for (n = 0; n < len; n++) buf[n] = (us->Buffer[n] >= 0x20 && us->Buffer[n] < 0x7f) ? (char)us->Buffer[n] : '?';
+    buf[n] = 0;
+    ERR( "ml-wow64   param %lu: [%s]\\n", i, buf );
+}
+
 /**********************************************************************
  *           wow64_NtRaiseHardError
  */
@@ -97,7 +108,7 @@ NTSTATUS WINAPI wow64_NtRaiseHardError( UINT *args )
     for (i = 0; i < count && i < 8; i++)
     {
         if (((params_mask >> i) & 1) && params64[i])
-            ERR( "ml-wow64   param %lu: %s\\n", i, debugstr_wn( strs64[i].Buffer, strs64[i].Length / sizeof(WCHAR) ) );
+            ml_dump_us( i, &strs64[i] );
         else ERR( "ml-wow64   param %lu: %p\\n", i, params64[i] );
     }
     ret = NtRaiseHardError( status, count, params_mask, params64, (HARDERROR_RESPONSE_OPTION)option, &response );
