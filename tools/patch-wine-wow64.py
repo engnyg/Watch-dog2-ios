@@ -66,9 +66,9 @@ NTSTATUS WINAPI wow64_NtRaiseHardError( UINT *args )
     ULONG option          = get_ulong( &args );
     ULONG *response32     = get_ptr( &args );
     /* ml-wow64-raiseharderror: translate 32→64 bit frame; upc.exe reads *Response */
-    ULONG_PTR params64[8] = {0};
+    PVOID params64[8] = {0};
     UNICODE_STRING strs64[8];
-    ULONG response = 0;
+    HARDERROR_RESPONSE response = 0;
     NTSTATUS ret;
     ULONG i;
 
@@ -80,14 +80,14 @@ NTSTATUS WINAPI wow64_NtRaiseHardError( UINT *args )
             strs64[i].Length        = s->Length;
             strs64[i].MaximumLength = s->MaximumLength;
             strs64[i].Buffer        = ULongToPtr( s->Buffer );
-            params64[i] = (ULONG_PTR)&strs64[i];
+            params64[i] = &strs64[i];
         }
-        else params64[i] = params32 ? params32[i] : 0;
+        else params64[i] = params32 ? (PVOID)(ULONG_PTR)params32[i] : NULL;
     }
-    ret = NtRaiseHardError( status, count, params_mask, params64, option, &response );
+    ret = NtRaiseHardError( status, count, params_mask, params64, (HARDERROR_RESPONSE_OPTION)option, &response );
     /* Headless Wine/iOS: server returns ResponseNotHandled (1) or leaves 0; treat
        as ResponseIgnore (4) so OptionAbortRetryIgnore callers don't take Abort path. */
-    if (!response) response = 4;
+    if (!response) response = (HARDERROR_RESPONSE)4;
     if (response32) *response32 = response;
     return ret;
 }"""
