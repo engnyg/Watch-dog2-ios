@@ -93,7 +93,15 @@ NTSTATUS WINAPI wow64_NtRaiseHardError( UINT *args )
         }
         else params64[i] = params32 ? (PVOID)(ULONG_PTR)params32[i] : NULL;
     }
+    ERR( "ml-wow64 hard error: status %08lx count %lu mask %lx option %lu\\n", (ULONG)status, count, params_mask, option );
+    for (i = 0; i < count && i < 8; i++)
+    {
+        if (((params_mask >> i) & 1) && params64[i])
+            ERR( "ml-wow64   param %lu: %s\\n", i, debugstr_wn( strs64[i].Buffer, strs64[i].Length / sizeof(WCHAR) ) );
+        else ERR( "ml-wow64   param %lu: %p\\n", i, params64[i] );
+    }
     ret = NtRaiseHardError( status, count, params_mask, params64, (HARDERROR_RESPONSE_OPTION)option, &response );
+    ERR( "ml-wow64   NtRaiseHardError returned %08lx response %u\\n", (ULONG)ret, (UINT)response );
     /* Headless Wine/iOS: server returns ResponseNotHandled (1) or leaves 0; treat
        as ResponseIgnore (4) so OptionAbortRetryIgnore callers don't take Abort path. */
     if (!response) response = (HARDERROR_RESPONSE)4;
