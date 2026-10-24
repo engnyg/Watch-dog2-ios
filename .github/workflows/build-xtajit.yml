@@ -34,6 +34,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Download the base IPA first (its link may expire)
+        if: ${{ env.BASE_IPA_URL != '' }}
+        run: |
+          set -eu
+          mkdir ipa
+          cd ipa
+          curl -fsSL --retry 3 -o base.bin "$BASE_IPA_URL"
+          # An Actions artifact is a zip around the .ipa; an IPA is a zip around Payload/.
+          if unzip -l base.bin | grep -q ' Payload/'; then
+            mv base.bin base.ipa
+          else
+            unzip -q base.bin
+            mv ./*.ipa base.ipa
+          fi
+          ls -l base.ipa
+
       - name: Fetch FEX at the requested commit
         run: |
           set -eu
@@ -92,9 +108,7 @@ jobs:
         if: ${{ env.BASE_IPA_URL != '' }}
         run: |
           set -eu
-          mkdir ipa
           cd ipa
-          curl -fsSL --retry 3 -o base.ipa "$BASE_IPA_URL"
           unzip -q base.ipa
           DLL=$(find Payload -type f -name xtajit.dll -path '*aarch64-windows*' | head -n1)
           test -n "$DLL" || { echo "no aarch64-windows/xtajit.dll in this IPA"; exit 1; }
