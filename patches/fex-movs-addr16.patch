@@ -1,0 +1,97 @@
+diff --git a/FEXCore/Source/Interface/Core/OpcodeDispatcher.cpp b/FEXCore/Source/Interface/Core/OpcodeDispatcher.cpp
+index 3c42f47e..b25b069b 100644
+--- a/FEXCore/Source/Interface/Core/OpcodeDispatcher.cpp
++++ b/FEXCore/Source/Interface/Core/OpcodeDispatcher.cpp
+@@ -3249,8 +3249,11 @@ void OpDispatchBuilder::STOSOp(OpcodeArgs) {
+ }
+ 
+ void OpDispatchBuilder::MOVSOp(OpcodeArgs) {
+-  if (Op->Flags & FEXCore::X86Tables::DecodeFlags::FLAG_ADDRESS_SIZE) {
+-    LogMan::Msg::EFmt("MOVSOp: Can't handle address size override (OP: 0x{:04X}, Flags: 0x{:08X})", Op->OP, Op->Flags);
++  const bool HasAddressOverride = (Op->Flags & FEXCore::X86Tables::DecodeFlags::FLAG_ADDRESS_SIZE) != 0;
++  const bool Repeat = (Op->Flags & (FEXCore::X86Tables::DecodeFlags::FLAG_REP_PREFIX | FEXCore::X86Tables::DecodeFlags::FLAG_REPNE_PREFIX)) != 0;
++
++  if (HasAddressOverride && Repeat) {
++    LogMan::Msg::EFmt("MOVSOp: REP with address size override not supported (OP: 0x{:04X}, Flags: 0x{:08X})", Op->OP, Op->Flags);
+     DecodeFailure = true;
+     return;
+   }
+@@ -3258,6 +3261,38 @@ void OpDispatchBuilder::MOVSOp(OpcodeArgs) {
+   // RA now can handle these to be here, to avoid DF accesses
+   const auto Size = OpSizeFromSrc(Op);
+ 
++  if (HasAddressOverride) {
++    // 0x67 selects SI/DI in 32-bit mode and ESI/EDI in 64-bit mode.
++    const OpSize AddrSize = Is64BitMode ? OpSize::i32Bit : OpSize::i16Bit;
++
++    Ref Src_RSI = LoadGPRRegister(X86State::REG_RSI, AddrSize);
++    Ref Src_RDI = LoadGPRRegister(X86State::REG_RDI, AddrSize);
++
++    Ref SrcAddr = AppendSegmentOffset(Src_RSI, Op->Flags, X86Tables::DecodeFlags::FLAG_DS_PREFIX);
++    Ref DstAddr = AppendSegmentOffset(Src_RDI, 0, X86Tables::DecodeFlags::FLAG_ES_PREFIX, true);
++
++    if (CTX->IsMemcpyAtomicTSOEnabled()) {
++      auto Src = _LoadMemGPRAutoTSO(Size, SrcAddr, Size);
++      _StoreMemGPRAutoTSO(Size, DstAddr, Src, Size);
++    } else {
++      auto Src = _LoadMem(RegClass::GPR, Size, SrcAddr, Invalid(), OpSize::i8Bit, MemOffsetType::SXTX, 1);
++      _StoreMem(RegClass::GPR, Size, Src, DstAddr, Invalid(), OpSize::i8Bit, MemOffsetType::SXTX, 1);
++    }
++
++    Ref Tail_RSI = OffsetByDir(Src_RSI, IR::OpSizeToSize(Size));
++    Ref Tail_RDI = OffsetByDir(Src_RDI, IR::OpSizeToSize(Size));
++    if (Is64BitMode) {
++      // A 32-bit address write zeroes the upper half of RSI/RDI.
++      StoreGPRRegister(X86State::REG_RSI, _Bfe(OpSize::i64Bit, 32, 0, Tail_RSI));
++      StoreGPRRegister(X86State::REG_RDI, _Bfe(OpSize::i64Bit, 32, 0, Tail_RDI));
++    } else {
++      // A 16-bit address write leaves the upper half of ESI/EDI untouched.
++      StoreGPRRegister(X86State::REG_RSI, Tail_RSI, AddrSize);
++      StoreGPRRegister(X86State::REG_RDI, Tail_RDI, AddrSize);
++    }
++    return;
++  }
++
+   if (Op->Flags & (FEXCore::X86Tables::DecodeFlags::FLAG_REP_PREFIX | FEXCore::X86Tables::DecodeFlags::FLAG_REPNE_PREFIX)) {
+     auto SrcAddr = LoadGPRRegister(X86State::REG_RSI);
+     auto DstAddr = LoadGPRRegister(X86State::REG_RDI);
+diff --git a/unittests/32Bit_ASM/Primary/Primary_A5_AddrSize16.asm b/unittests/32Bit_ASM/Primary/Primary_A5_AddrSize16.asm
+new file mode 100644
+index 00000000..68a13b0c
+--- /dev/null
++++ b/unittests/32Bit_ASM/Primary/Primary_A5_AddrSize16.asm
+@@ -0,0 +1,34 @@
++%ifdef CONFIG
++{
++  "RegData": {
++    "RAX": "0x41424344",
++    "RSI": "0xABCD2004",
++    "RDI": "0x12343004"
++  },
++  "MemoryRegions": {
++    "0x00002000": "4096",
++    "0x00003000": "4096"
++  },
++  "Mode": "32BIT"
++}
++%endif
++
++; movsd with the 0x67 prefix addresses memory through SI and DI only.
++; The upper halves of ESI and EDI are ignored for the access and kept afterwards.
++
++mov eax, 0x17
++mov es, eax
++mov ds, eax
++
++mov dword [0x2000], 0x41424344
++mov dword [0x3000], 0
++
++mov esi, 0xABCD2000
++mov edi, 0x12343000
++
++cld
++a16 movsd
++
++mov eax, [0x3000]
++
++hlt
