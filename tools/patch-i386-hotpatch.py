@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Give exported functions of i386 PE modules the Windows hot-patch entry (8B FF, mov edi,edi).
+"""Give exported functions of i386 PE modules the exact Windows entry bytes: 8B FF 55 8B EC.
 
 llvm-mingw's -fms-hotpatch emits 66 90 (xchg ax,ax) at every i386 function entry; real Windows (and gcc's
 ms_hook_prologue, which upstream Wine relies on) use 8B FF. Ubisoft Connect's API-hooking engine reports
 'Error at hooking API ...' when an entry does not look like that (Wine bug 46626). Both forms are 2-byte no-ops
-that leave all registers and flags unchanged, so the rewrite is behaviour-neutral.
+that leave all registers and flags unchanged, so the rewrite is behaviour-neutral. The same goes for the two encodings
+of 'mov ebp,esp': MSVC/Windows emit 8B EC, gcc/clang emit 89 E5; an engine that matches the Windows byte pattern only
+accepts the former, so 55 89 E5 at an entry (after the optional 8B FF) is rewritten to 55 8B EC.
 
 Usage: patch-i386-hotpatch.py <dir>   (every *.dll/*.exe/*.drv/*.ocx/*.cpl/*.ax under <dir>, recursively)
 """
@@ -57,8 +59,14 @@ def patch(path):
         if not rva or exp_rva <= rva < exp_rva + exp_size:
             continue
         o = off(rva)
-        if o is not None and d[o:o + 2] == b"\x66\x90":
+        if o is None:
+            continue
+        if d[o:o + 2] == b"\x66\x90":
             d[o:o + 2] = b"\x8b\xff"
+            n += 1
+        p = o + 2 if d[o:o + 2] == b"\x8b\xff" else o
+        if d[p:p + 3] == b"\x55\x89\xe5":
+            d[p + 1:p + 3] = b"\x8b\xec"
             n += 1
     if n:
         open(path, "wb").write(d)
@@ -73,4 +81,4 @@ for root, _, files in os.walk(sys.argv[1]):
             if n:
                 total_files += 1
                 total_funcs += n
-print(f"hotpatch: rewrote 66 90 -> 8B FF at {total_funcs} exported entries in {total_files} modules")
+print(f"hotpatch: {total_funcs} entry rewrites (66 90 -> 8B FF, 55 89 E5 -> 55 8B EC) in {total_files} modules")
